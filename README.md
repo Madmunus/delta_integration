@@ -26,7 +26,7 @@ Bootstrap 5 (хранится локально в `static/vendor/`), requests, A
 
 ```bash
 cd delta_integration
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python seed.py                    # демо-данные
 python app.py                     # http://127.0.0.1:5000
 ```
@@ -45,7 +45,7 @@ python app.py                     # http://127.0.0.1:5000
 set DELTA_ENV=production
 set DELTA_SECRET_KEY=<случайная строка>
 set DELTA_DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/delta
-pip install psycopg2-binary gunicorn
+python -m pip install psycopg2-binary gunicorn
 gunicorn -w 4 -b 0.0.0.0:8000 "app:app"
 ```
 
