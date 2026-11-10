@@ -1,0 +1,35 @@
+/* Дельта — минимальные стили поверх Bootstrap 5 */
+body {
+  background-color: #f6f8fa;
+}
+
+.navbar-brand {
+  font-weight: 600;
+  letter-spacing: .5px;
+}
+
+/* Подсветка текущего раздела в навигации */
+.navbar .nav-link.active {
+  color: #fff;
+  background-color: rgba(255, 255, 255, .18);
+  border-radius: .375rem;
+}
+
+.table td, .table th {
+  vertical-align: middle;
+}
+
+/* Компактные бейджи в таблицах */
+.table .badge {
+  font-weight: 500;
+}
+
+/* Аккуратные карточки-виджеты на dashboard */
+.card {
+  border-color: #e3e6ea;
+}
+
+.progress {
+  height: 1.1rem;
+  font-size: .75rem;
+}

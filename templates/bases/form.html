@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Учётная база' if base.id else 'Новая учётная база' }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">{{ 'Изменение учётной базы' if base.id else 'Новая учётная база' }}</h1>
+<div class="card" style="max-width: 720px;">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-12">
+          {{ form.name.label(class='form-label') }}
+          {{ form.name(class='form-control', placeholder='Например: Бухгалтерия основная') }}
+        </div>
+        <div class="col-12">
+          {{ form.odata_url.label(class='form-label') }}
+          {{ form.odata_url(class='form-control',
+             placeholder='http://server/base/odata/standard.odata/') }}
+          <div class="form-text">Публикация стандартного OData-интерфейса 1С.
+            У пользователя должны быть права на чтение справочников.</div>
+        </div>
+        <div class="col-md-6">
+          {{ form.username.label(class='form-label') }}
+          {{ form.username(class='form-control', autocomplete='off') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.password.label(class='form-label') }}
+          {{ form.password(class='form-control', autocomplete='new-password') }}
+        </div>
+        <div class="col-12">
+          <div class="form-check">
+            {{ form.is_enabled(class='form-check-input') }}
+            {{ form.is_enabled.label(class='form-check-label') }}
+          </div>
+        </div>
+      </div>
+      <div class="mt-3">
+        {{ form.submit(class='btn btn-primary') }}
+        <a class="btn btn-outline-secondary" href="{{ url_for('clients.list_bases') }}">Отмена</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

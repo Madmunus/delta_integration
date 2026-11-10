@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}Клиенты{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Реестр клиентов</h1>
+  <a class="btn btn-primary" href="{{ url_for('clients.add') }}">+ Добавить клиента</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-5">
+    <input class="form-control" name="q" value="{{ search }}"
+           placeholder="Поиск по наименованию, ИНН, заметкам">
+  </div>
+  <div class="col-md-4">
+    <select class="form-select" name="status">
+      <option value="">Все статусы</option>
+      <option value="active" {{ 'selected' if status == 'active' }}>Активные</option>
+      <option value="archived" {{ 'selected' if status == 'archived' }}>Архивные</option>
+    </select>
+  </div>
+  <div class="col-md-2"><button class="btn btn-secondary w-100">Найти</button></div>
+</form>
+
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead class="table-light">
+    <tr>
+      <th>Наименование</th><th>ИНН</th><th>КПП</th>
+      <th>Статус</th><th>Ответственный</th><th>Добавлен</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in pagination.items %}
+    <tr>
+      <td><a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a>
+          {% if c.odata_base %}<span class="badge text-bg-info" title="Синхронизируется из 1С">1С</span>{% endif %}</td>
+      <td class="text-nowrap">{{ c.inn or '—' }}</td>
+      <td>{{ c.kpp or '—' }}</td>
+      <td>
+        {% if c.status == 'active' %}<span class="badge text-bg-success">активный</span>
+        {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+      </td>
+      <td>{{ c.responsible.fio if c.responsible else '—' }}</td>
+      <td class="text-nowrap">{{ c.date_added|dt }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="text-muted">Клиенты не найдены</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav>
+  <ul class="pagination">
+    {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+      {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+          <a class="page-link" href="{{ url_for('clients.list_clients', page=p, q=search, status=status) }}">{{ p }}</a>
+        </li>
+      {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

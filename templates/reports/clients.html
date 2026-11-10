@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Отчёт по клиентской базе{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Отчёт по клиентской базе</h1>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ active }}</div>
+    <div class="text-muted">активных клиентов</div>
+  </div></div></div>
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ total }}</div>
+    <div class="text-muted">всего в реестре</div>
+  </div></div></div>
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ unassigned }}</div>
+    <div class="text-muted">без ответственного</div>
+  </div></div></div>
+</div>
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Ответственный сотрудник</th>
+    <th class="text-end">Всего клиентов</th>
+    <th class="text-end">Активных</th>
+    <th>Доля активных</th>
+  </tr></thead>
+  <tbody>
+  {% for fio, cnt, act in rows %}
+    <tr>
+      <td>{{ fio }}</td>
+      <td class="text-end">{{ cnt }}</td>
+      <td class="text-end">{{ act or 0 }}</td>
+      <td>
+        {% set pct = (100 * (act or 0) / cnt)|round if cnt else 0 %}
+        <div class="progress" style="min-width: 120px;">
+          <div class="progress-bar bg-success" style="width: {{ pct }}%">{{ pct|int }}%</div>
+        </div>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

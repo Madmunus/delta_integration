@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Отчёты{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Сводная отчётность</h1>
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Клиентская база</h5>
+        <p class="card-text text-muted">Количество активных, распределение
+          по ответственным сотрудникам.</p>
+        <a class="btn btn-primary" href="{{ url_for('reports.clients_report') }}">Открыть</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Задачи</h5>
+        <p class="card-text text-muted">Выполненные, в работе, просроченные
+          в разрезе исполнителей.</p>
+        <a class="btn btn-primary" href="{{ url_for('reports.tasks_report') }}">Открыть</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Договоры и поступления</h5>
+        <p class="card-text text-muted">Стоимость сопровождения, статус договоров.</p>
+        <a class="btn btn-primary" href="{{ url_for('reports.contracts_report') }}">Открыть</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Контроль сроков отчётности</h5>
+        <p class="card-text text-muted">Ближайшие и просроченные сроки
+          в разрезе клиентов.</p>
+        <a class="btn btn-primary" href="{{ url_for('reports.deadlines_report') }}">Открыть</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

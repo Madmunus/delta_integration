@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Карточка пользователя' if user else 'Новый пользователь' }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">
+  {% if user %}Карточка пользователя: {{ user.fio }}
+  {% else %}Новый пользователь{% endif %}
+</h1>
+<div class="card" style="max-width: 720px;">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-md-6">
+          {{ form.fio.label(class='form-label') }}
+          {{ form.fio(class='form-control') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.email.label(class='form-label') }}
+          {{ form.email(class='form-control', autocomplete='off') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.password.label(class='form-label') }}
+          {{ form.password(class='form-control', autocomplete='new-password') }}
+          {% if user %}
+            <div class="form-text">Оставьте пустым, чтобы сохранить текущий пароль.</div>
+          {% else %}
+            <div class="form-text">Обязателен для нового пользователя (не короче 6 символов).</div>
+          {% endif %}
+        </div>
+        <div class="col-md-6">
+          {{ form.role.label(class='form-label') }}
+          {{ form.role(class='form-select') }}
+        </div>
+        <div class="col-md-6">
+          <div class="form-check mt-2">
+            {{ form.is_active(class='form-check-input') }}
+            {{ form.is_active.label(class='form-check-label') }}
+          </div>
+          <div class="form-text">Отключённый пользователь не может входить
+            в систему и работать в ней.</div>
+        </div>
+      </div>
+      <div class="mt-3">
+        {{ form.submit(class='btn btn-primary') }}
+        <a class="btn btn-outline-secondary" href="{{ url_for('users.list_users') }}">Отмена</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

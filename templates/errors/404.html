@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Страница не найдена{% endblock %}
+{% block content %}
+<div class="text-center mt-5">
+  <h1 class="display-1">404</h1>
+  <p class="lead">Страница не найдена.</p>
+  <a class="btn btn-primary" href="{{ url_for('reports.dashboard') }}">На панель управления</a>
+</div>
+{% endblock %}

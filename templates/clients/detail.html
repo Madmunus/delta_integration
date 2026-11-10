@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}{{ client.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h4 mb-1">{{ client.name }}
+      {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
+      {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+      {% if client.odata_base %}<span class="badge text-bg-info">база: {{ client.odata_base.name }}</span>{% endif %}
+    </h1>
+    <p class="text-muted mb-0">ИНН {{ client.inn or '—' }} · КПП {{ client.kpp or '—' }} ·
+      добавлен {{ client.date_added|dt }} ·
+      ответственный: {{ client.responsible.fio if client.responsible else 'не назначен' }}</p>
+  </div>
+  <div>
+    <a class="btn btn-outline-primary btn-sm"
+       href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
+    <a class="btn btn-outline-success btn-sm"
+       href="{{ url_for('clients.edit_contract') }}?client={{ client.id }}">+ Договор</a>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('tasks.edit_task') }}?client={{ client.id }}">+ Задача</a>
+  </div>
+</div>
+
+<ul class="nav nav-tabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+    data-bs-target="#tab-requisites" type="button">Реквизиты</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+    data-bs-target="#tab-contracts" type="button">Договоры ({{ contracts|length }})</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+    data-bs-target="#tab-tasks" type="button">Задачи ({{ tasks|length }})</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+    data-bs-target="#tab-docs" type="button">Документы ({{ documents|length }})</button></li>
+</ul>
+
+<div class="tab-content border border-top-0 p-3 bg-body rounded-bottom">
+  <div class="tab-pane fade show active" id="tab-requisites">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">Полное наименование</dt><dd class="col-sm-9">{{ client.name }}</dd>
+      <dt class="col-sm-3">ИНН</dt><dd class="col-sm-9">{{ client.inn or '—' }}</dd>
+      <dt class="col-sm-3">КПП</dt><dd class="col-sm-9">{{ client.kpp or '—' }}</dd>
+      <dt class="col-sm-3">Учётная база 1С</dt>
+      <dd class="col-sm-9">{{ client.odata_base.name if client.odata_base else 'не связана' }}</dd>
+      <dt class="col-sm-3">Заметки</dt>
+      <dd class="col-sm-9" style="white-space: pre-wrap;">{{ client.notes or '—' }}</dd>
+    </dl>
+  </div>
+
+  <div class="tab-pane fade" id="tab-contracts">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>№</th><th>Дата</th><th>Предмет</th>
+        <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th></tr></thead>
+      <tbody>
+      {% for c in contracts %}
+        <tr>
+          <td><a href="{{ url_for('clients.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
+          <td>{{ c.signed_date|dt }}</td>
+          <td>{{ c.subject|truncate(70) }}</td>
+          <td class="text-end">{{ c.amount|money }}</td>
+          <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
+          <td><span class="badge
+            {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
+            {{ c.status_label }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-muted">Договоров нет</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tab-pane fade" id="tab-tasks">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Задача</th><th>Исполнитель</th><th>Срок</th>
+        <th>Приоритет</th><th>Статус</th></tr></thead>
+      <tbody>
+      {% for t in tasks %}
+        <tr class="{{ 'table-danger' if t.is_overdue }}">
+          <td><a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(70) }}</a></td>
+          <td>{{ t.assignee.fio if t.assignee else '—' }}</td>
+          <td class="text-nowrap">{{ t.due_date|dt }}</td>
+          <td>{{ t.priority_label }}</td>
+          <td>{{ t.status_label }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Задач нет</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tab-pane fade" id="tab-docs">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Тип</th><th>Номер</th><th>Дата</th>
+        <th class="text-end">Сумма</th><th>Статус</th><th>Ссылка</th></tr></thead>
+      <tbody>
+      {% for d in documents %}
+        <tr>
+          <td>{{ d.doc_type }}</td>
+          <td>{{ d.number }}</td>
+          <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+          <td class="text-end">{{ d.amount|money if d.amount is not none else '—' }}</td>
+          <td>{{ d.status or '—' }}</td>
+          <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
+              rel="noopener noreferrer">открыть в 1С:ДО</a>{% else %}—{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-muted">Документы из «1С:Документооборот»
+          появятся после настройки интеграции</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

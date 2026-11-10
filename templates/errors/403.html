@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Доступ запрещён{% endblock %}
+{% block content %}
+<div class="text-center mt-5">
+  <h1 class="display-1">403</h1>
+  <p class="lead">Доступ запрещён: недостаточно прав.</p>
+  <a class="btn btn-primary" href="{{ url_for('reports.dashboard') }}">На панель управления</a>
+</div>
+{% endblock %}

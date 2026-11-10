@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Отчёт по договорам{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Отчёт по договорам и поступлениям</h1>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ by_status.get('active', {}).get('count', 0) }}</div>
+    <div class="text-muted">действующих договоров</div>
+  </div></div></div>
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ by_status.get('closed', {}).get('count', 0) }}</div>
+    <div class="text-muted">завершённых</div>
+  </div></div></div>
+  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+    <div class="display-6">{{ total_amount|money }}</div>
+    <div class="text-muted">стоимость действующих, руб.</div>
+  </div></div></div>
+</div>
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>№</th><th>Клиент</th><th>Дата</th>
+    <th class="text-end">Стоимость, руб.</th><th>Действие</th><th>Статус</th>
+  </tr></thead>
+  <tbody>
+  {% for c in contracts %}
+    <tr>
+      <td>{{ c.number }}</td>
+      <td><a href="{{ url_for('clients.detail', client_id=c.client_id) }}">{{ c.client.name|truncate(40) }}</a></td>
+      <td class="text-nowrap">{{ c.signed_date|dt }}</td>
+      <td class="text-end">{{ c.amount|money }}</td>
+      <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
+      <td><span class="badge
+        {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
+        {{ c.status_label }}</span></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="text-muted">Договоров нет</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

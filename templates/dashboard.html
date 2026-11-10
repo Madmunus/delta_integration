@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block title %}Панель управления{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Панель управления</h1>
+
+<div class="row g-4">
+  {# ==================== Группа «Клиенты» ==================== #}
+  <div class="col-lg-6">
+    <div class="d-flex align-items-baseline mb-3">
+      <h2 class="h6 text-uppercase text-muted mb-0 me-2">Клиенты</h2>
+      <a class="small" href="{{ url_for('clients.list_clients') }}">весь реестр →</a>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-6">
+        <a class="card text-center h-100 text-reset text-decoration-none d-block"
+           href="{{ url_for('clients.list_clients', status='active') }}">
+          <div class="card-body">
+            <div class="display-6">{{ active_clients }}</div>
+            <div class="text-muted">активных клиентов</div>
+          </div>
+        </a>
+      </div>
+      <div class="col-6">
+        <a class="card text-center h-100 text-reset text-decoration-none d-block"
+           href="{{ url_for('clients.list_clients', status='archived') }}">
+          <div class="card-body">
+            <div class="display-6">{{ archived_clients }}</div>
+            <div class="text-muted">архивных клиентов</div>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header bg-success-subtle text-success-emphasis fw-semibold">
+        Последние добавленные клиенты
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for c in recent_clients %}
+          <li class="list-group-item d-flex justify-content-between">
+            <a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a>
+            <span class="text-muted">{{ c.date_added|dt }}</span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">Реестр пуст — добавьте клиента
+            или выполните синхронизацию из 1С</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  {# ==================== Группа «Задачи» ==================== #}
+  <div class="col-lg-6">
+    <div class="d-flex align-items-baseline mb-3">
+      <h2 class="h6 text-uppercase text-muted mb-0 me-2">Задачи</h2>
+      <a class="small" href="{{ url_for('tasks.list_tasks') }}">все задачи →</a>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-6">
+        <a class="card text-center h-100 text-reset text-decoration-none d-block"
+           href="{{ url_for('tasks.list_tasks', status='open') }}">
+          <div class="card-body">
+            <div class="display-6 {{ 'text-danger' if overdue_count }}">{{ open_tasks_count }}</div>
+            <div class="text-muted">открытых задач</div>
+          </div>
+        </a>
+      </div>
+      <div class="col-6">
+        <a class="card text-center h-100 text-reset text-decoration-none d-block
+                  {{ 'border-danger' if overdue_count }}"
+           href="{{ url_for('tasks.list_tasks', status='overdue') }}">
+          <div class="card-body">
+            <div class="display-6 {{ 'text-danger' if overdue_count }}">{{ overdue_count }}</div>
+            <div class="text-muted">просрочено</div>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header bg-danger-subtle text-danger-emphasis fw-semibold">
+        Ближайшие сроки
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in upcoming %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">
+              {{ t.title|truncate(60) }}</a>
+            <span class="badge {{ 'text-bg-danger' if t.days_left < 0 else 'text-bg-warning' if t.days_left <= 3 else 'text-bg-secondary' }}">
+              {{ t.due_date|dt }}{% if t.days_left >= 0 %} (через {{ t.days_left }} дн.){% else %} (просрочено на {{ -t.days_left }} дн.){% endif %}
+            </span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">Ближайших сроков нет</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {% if current_user.is_admin %}
+    <div class="card">
+      <div class="card-header bg-primary-subtle text-primary-emphasis fw-semibold">
+        Мои задачи
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in my_tasks %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(60) }}</a>
+            <span class="badge text-bg-secondary">{{ t.due_date|dt }}</span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">Нет назначенных задач</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

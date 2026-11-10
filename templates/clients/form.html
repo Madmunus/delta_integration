@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Редактирование клиента' if client else 'Новый клиент' }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">{{ 'Редактирование клиента' if client else 'Новый клиент' }}</h1>
+<div class="card" style="max-width: 720px;">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-12">
+          {{ form.name.label(class='form-label') }}
+          {{ form.name(class='form-control') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.inn.label(class='form-label') }}
+          {{ form.inn(class='form-control') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.kpp.label(class='form-label') }}
+          {{ form.kpp(class='form-control') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.status.label(class='form-label') }}
+          {{ form.status(class='form-select') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.responsible_id.label(class='form-label') }}
+          {{ form.responsible_id(class='form-select') }}
+        </div>
+        <div class="col-12">
+          {{ form.notes.label(class='form-label') }}
+          {{ form.notes(class='form-control', rows=4) }}
+        </div>
+      </div>
+      <div class="mt-3">
+        {{ form.submit(class='btn btn-primary') }}
+        <a class="btn btn-outline-secondary"
+           href="{{ url_for('clients.detail', client_id=client.id) if client else url_for('clients.list_clients') }}">Отмена</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

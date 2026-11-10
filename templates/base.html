@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Дельта{% endblock %} — Дельта</title>
+  <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('reports.dashboard') }}">Δ Дельта</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#navmenu"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="navmenu">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'dashboard' }}"
+          {% if active_nav == 'dashboard' %}aria-current="page"{% endif %}
+          href="{{ url_for('reports.dashboard') }}">Панель</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'clients' }}"
+          {% if active_nav == 'clients' %}aria-current="page"{% endif %}
+          href="{{ url_for('clients.list_clients') }}">Клиенты</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'contracts' }}"
+          {% if active_nav == 'contracts' %}aria-current="page"{% endif %}
+          href="{{ url_for('clients.list_contracts') }}">Договоры</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'tasks' }}"
+          {% if active_nav == 'tasks' %}aria-current="page"{% endif %}
+          href="{{ url_for('tasks.list_tasks') }}">Задачи</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'deadlines' }}"
+          {% if active_nav == 'deadlines' %}aria-current="page"{% endif %}
+          href="{{ url_for('tasks.list_deadlines') }}">Сроки отчётности</a></li>
+        {% if current_user.is_admin %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'reports' }}"
+          {% if active_nav == 'reports' %}aria-current="page"{% endif %}
+          href="{{ url_for('reports.index') }}">Отчёты</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'bases' }}"
+          {% if active_nav == 'bases' %}aria-current="page"{% endif %}
+          href="{{ url_for('clients.list_bases') }}">Базы 1С</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'users' }}"
+          {% if active_nav == 'users' %}aria-current="page"{% endif %}
+          href="{{ url_for('users.list_users') }}">Пользователи</a></li>
+        {% endif %}
+      </ul>
+      <span class="navbar-text me-3">{{ current_user.fio }}
+        {% if current_user.is_admin %}<span class="badge text-bg-warning">руководитель</span>{% endif %}
+      </span>
+      <a class="btn btn-outline-light btn-sm"
+         href="{{ url_for('auth.logout') }}">Выйти</a>
+    </div>
+  </div>
+</nav>
+{% endif %}
+
+<main class="container pb-5">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

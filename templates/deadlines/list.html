@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Сроки отчётности{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Справочник сроков сдачи отчётности</h1>
+  <div>
+    {% if current_user.is_admin %}
+    <form class="d-inline" method="post" action="{{ url_for('tasks.generate_tasks_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-success">Сформировать задачи по срокам</button>
+    </form>
+    <a class="btn btn-primary" href="{{ url_for('tasks.edit_deadline') }}">+ Добавить форму</a>
+    {% endif %}
+  </div>
+</div>
+
+<h2 class="h6 mt-4 mb-2 text-uppercase text-muted">Контроль ближайших сроков в разрезе клиентов</h2>
+<table class="table table-sm align-middle mb-4">
+  <thead class="table-light"><tr>
+    <th>Форма</th><th>Периодичность</th><th>Категория</th>
+    <th>Ближайший срок</th><th>Готовность по клиентам</th>
+  </tr></thead>
+  <tbody>
+  {% for u in upcoming %}
+    <tr class="{{ 'table-danger' if u.overdue }}">
+      <td>{{ u.deadline.name }}</td>
+      <td>{{ u.deadline.periodicity_label }}</td>
+      <td>{{ u.deadline.taxpayer_category }}</td>
+      <td class="text-nowrap fw-semibold">{{ u.due|dt }}</td>
+      <td>
+        {% set pct = (100 * u.clients_done / u.clients_total)|round if u.clients_total else 0 %}
+        <div class="progress" style="min-width: 120px;" title="{{ u.clients_done }} из {{ u.clients_total }}">
+          <div class="progress-bar {{ 'bg-success' if pct == 100 else 'bg-warning' if u.overdue else 'bg-primary' }}"
+               style="width: {{ pct }}%">{{ pct|int }}%</div>
+        </div>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">Нет форм в справочнике</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="h6 mt-4 mb-2 text-uppercase text-muted">Виды отчётности</h2>
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Код</th><th>Наименование</th><th>Периодичность</th>
+    <th>День сдачи</th><th>Смещение</th><th>Категория</th><th>Вкл.</th>
+  </tr></thead>
+  <tbody>
+  {% for d in deadlines %}
+    <tr>
+      <td><a href="{{ url_for('tasks.edit_deadline', deadline_id=d.id) }}">{{ d.code }}</a></td>
+      <td>{{ d.name }}</td>
+      <td>{{ d.periodicity_label }}</td>
+      <td>{{ d.due_day }}</td>
+      <td>{{ d.period_offset }} мес.</td>
+      <td>{{ d.taxpayer_category }}</td>
+      <td>{{ 'да' if d.is_enabled else 'нет' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="text-muted">Справочник пуст — добавьте виды отчётности
+      или запустите наполнение демо-данными</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

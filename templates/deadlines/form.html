@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Вид отчётности' if deadline.id else 'Новый вид отчётности' }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">{{ 'Изменение вида отчётности' if deadline.id else 'Новый вид отчётности' }}</h1>
+<div class="card" style="max-width: 720px;">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-md-8">
+          {{ form.name.label(class='form-label') }}
+          {{ form.name(class='form-control') }}
+        </div>
+        <div class="col-md-4">
+          {{ form.code.label(class='form-label') }}
+          {{ form.code(class='form-control') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.periodicity.label(class='form-label') }}
+          {{ form.periodicity(class='form-select') }}
+        </div>
+        <div class="col-md-3">
+          {{ form.due_day.label(class='form-label') }}
+          {{ form.due_day(class='form-control', type='number', min=1, max=31) }}
+        </div>
+        <div class="col-md-3">
+          {{ form.period_offset.label(class='form-label') }}
+          {{ form.period_offset(class='form-control', type='number', min=0, max=6) }}
+        </div>
+        <div class="col-md-6">
+          {{ form.taxpayer_category.label(class='form-label') }}
+          {{ form.taxpayer_category(class='form-control',
+             placeholder='например: УСН, ОСНО') }}
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+          <div class="form-check">
+            {{ form.is_enabled(class='form-check-input') }}
+            {{ form.is_enabled.label(class='form-check-label') }}
+          </div>
+        </div>
+        <div class="col-12">
+          {{ form.description.label(class='form-label') }}
+          {{ form.description(class='form-control', rows=3) }}
+        </div>
+      </div>
+      <div class="mt-3">
+        {{ form.submit(class='btn btn-primary') }}
+        <a class="btn btn-outline-secondary" href="{{ url_for('tasks.list_deadlines') }}">Отмена</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

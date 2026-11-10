@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Учётные базы 1С{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Учётные базы «1С»</h1>
+  <div>
+    <form class="d-inline" method="post" action="{{ url_for('clients.run_sync') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-success">Синхронизировать сейчас</button>
+    </form>
+    <a class="btn btn-primary" href="{{ url_for('clients.edit_base') }}">+ Добавить базу</a>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  Синхронизация выполняется автоматически каждые
+  {{ config['SYNC_INTERVAL_SECONDS'] // 60 or 1 }} мин. Ручные атрибуты клиентов
+  (статус, ответственный, заметки) при синхронизации не изменяются.
+</div>
+
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Наименование</th><th>URL OData</th><th>Включена</th>
+    <th>Последняя синхронизация</th><th class="text-end">Действия</th>
+  </tr></thead>
+  <tbody>
+  {% for b in bases %}
+    <tr>
+      <td><a href="{{ url_for('clients.edit_base', base_id=b.id) }}">{{ b.name }}</a></td>
+      <td class="text-truncate" style="max-width: 340px;">{{ b.odata_url }}</td>
+      <td>{{ 'да' if b.is_enabled else 'нет' }}</td>
+      <td>{{ b.last_sync_at|dt if b.last_sync_at else 'ещё не выполнялась' }}</td>
+      <td class="text-end">
+        <a class="btn btn-sm btn-outline-secondary"
+           href="{{ url_for('clients.edit_base', base_id=b.id) }}">Изменить</a>
+        <form class="d-inline" method="post"
+              action="{{ url_for('clients.delete_base', base_id=b.id) }}"
+              onsubmit="return confirm('Удалить учётную базу? Клиенты сохранятся, но потеряют связь с 1С.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-danger">Удалить</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">Базы не зарегистрированы. Добавьте базу,
+      указав URL вида <code>http://server/base/odata/standard.odata/</code></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Пользователи{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Пользователи системы</h1>
+  <a class="btn btn-primary" href="{{ url_for('users.add_user') }}">+ Добавить пользователя</a>
+</div>
+
+<div class="alert alert-info">
+  Поле «Активен» определяет возможность пользователя заходить в систему
+  и работать в ней. Отключённый пользователь не может войти,
+  а его действующая сессия прерывается.
+</div>
+
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>ФИО</th><th>Логин (email)</th><th>Роль</th>
+    <th>Статус</th><th class="text-end">Действия</th>
+  </tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr class="{{ 'table-secondary' if not u.is_active_flag }}">
+      <td>
+        {% if u.id == current_user.id %}<span class="badge text-bg-dark">вы</span> {% endif %}
+        <a href="{{ url_for('users.edit_user', user_id=u.id) }}">{{ u.fio }}</a>
+      </td>
+      <td>{{ u.email }}</td>
+      <td>
+        {% if u.role == 'admin' %}
+          <span class="badge text-bg-warning">руководитель</span>
+        {% else %}
+          <span class="badge text-bg-secondary">сотрудник</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.is_active_flag %}
+          <span class="badge text-bg-success">активен</span>
+        {% else %}
+          <span class="badge text-bg-secondary">отключён</span>
+        {% endif %}
+      </td>
+      <td class="text-end text-nowrap">
+        {% if u.id != current_user.id %}
+        <form class="d-inline" method="post"
+              action="{{ url_for('users.toggle_user', user_id=u.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if u.is_active_flag %}
+            <button class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Отключить пользователя {{ u.fio }}?')">Отключить</button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-success">Включить</button>
+          {% endif %}
+        </form>
+        {% else %}
+        <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

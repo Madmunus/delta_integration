@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}Задачи{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Реестр задач</h1>
+  <a class="btn btn-primary" href="{{ url_for('tasks.edit_task') }}">+ Новая задача</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-3">
+    <select class="form-select" name="status">
+      <option value="">Все статусы</option>
+      <option value="open" {{ 'selected' if status == 'open' }}>Открытые</option>
+      <option value="new" {{ 'selected' if status == 'new' }}>Новые</option>
+      <option value="in_progress" {{ 'selected' if status == 'in_progress' }}>В работе</option>
+      <option value="done" {{ 'selected' if status == 'done' }}>Выполнены</option>
+      <option value="overdue" {{ 'selected' if status == 'overdue' }}>Просрочены</option>
+    </select>
+  </div>
+  {% if current_user.is_admin %}
+  <div class="col-md-3">
+    <select class="form-select" name="assignee">
+      <option value="">Все исполнители</option>
+      {% for u in users %}
+        <option value="{{ u.id }}" {{ 'selected' if assignee_id == u.id }}>{{ u.fio }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="col-md-3">
+    <div class="form-check mt-2">
+      <input class="form-check-input" type="checkbox" name="mine" value="1" id="mine"
+             {{ 'checked' if mine }}>
+      <label class="form-check-label" for="mine">Только мои</label>
+    </div>
+  </div>
+  <div class="col-md-2"><button class="btn btn-secondary w-100">Применить</button></div>
+</form>
+
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Задача</th><th>Клиент</th><th>Исполнитель</th><th>Срок</th>
+    <th>Приоритет</th><th>Статус</th><th class="text-end">Действия</th>
+  </tr></thead>
+  <tbody>
+  {% for t in tasks %}
+    <tr class="{{ 'table-danger' if t.is_overdue }}">
+      <td><a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(70) }}</a>
+        {% if t.reporting_deadline_id %}<span class="badge text-bg-info"
+          title="Создана автоматически по сроку отчётности">авто</span>{% endif %}</td>
+      <td>{% if t.client %}<a href="{{ url_for('clients.detail', client_id=t.client_id) }}"
+        >{{ t.client.name|truncate(30) }}</a>{% else %}—{% endif %}</td>
+      <td>{{ t.assignee.fio if t.assignee else '—' }}</td>
+      <td class="text-nowrap">{{ t.due_date|dt if t.due_date else '—' }}
+        {% if t.days_left is not none and t.status != 'done' %}
+          {% if t.days_left < 0 %}<span class="badge text-bg-danger">−{{ -t.days_left }} дн.</span>
+          {% elif t.days_left <= 3 %}<span class="badge text-bg-warning">{{ t.days_left }} дн.</span>{% endif %}
+        {% endif %}</td>
+      <td>{{ t.priority_label }}</td>
+      <td>{{ t.status_label }}</td>
+      <td class="text-end text-nowrap">
+        {% if t.status != 'done' %}
+        <form class="d-inline" method="post"
+              action="{{ url_for('tasks.change_status', task_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="done">
+          <button class="btn btn-sm btn-outline-success" title="Отметить выполненной">✓</button>
+        </form>
+        {% endif %}
+        <form class="d-inline" method="post"
+              action="{{ url_for('tasks.delete_task', task_id=t.id) }}"
+              onsubmit="return confirm('Удалить задачу?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-danger" title="Удалить">✕</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="text-muted">Задач не найдено</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

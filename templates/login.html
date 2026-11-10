@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Вход{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-5 col-lg-4">
+    <div class="card shadow">
+      <div class="card-body p-4">
+        <h4 class="text-center mb-1">Δ Дельта</h4>
+        <p class="text-center text-muted mb-4">Управление клиентской базой</p>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          {% for field, errors in form.errors.items() %}
+            {% for error in errors %}
+              <div class="alert alert-danger py-1">{{ error }}</div>
+            {% endfor %}
+          {% endfor %}
+          <div class="mb-3">
+            {{ form.email.label(class='form-label') }}
+            {{ form.email(class='form-control', autofocus=true) }}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label(class='form-label') }}
+            {{ form.password(class='form-control') }}
+          </div>
+          <div class="form-check mb-3">
+            {{ form.remember(class='form-check-input') }}
+            {{ form.remember.label(class='form-check-label') }}
+          </div>
+          {{ form.submit(class='btn btn-primary w-100') }}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
