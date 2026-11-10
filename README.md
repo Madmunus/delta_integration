@@ -26,8 +26,6 @@ Bootstrap 5 (хранится локально в `static/vendor/`), requests, A
 
 ```bash
 cd delta_integration
-python -m venv .venv
-.venv\Scripts\activate            # Windows
 pip install -r requirements.txt
 python seed.py                    # демо-данные
 python app.py                     # http://127.0.0.1:5000
