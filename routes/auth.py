@@ -2,7 +2,8 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
-from models import User, db
+from engine.forms import LoginForm
+from engine.models import User, db
 
 bp = Blueprint('auth', __name__)
 
@@ -12,7 +13,6 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('reports.dashboard'))
 
-    from forms import LoginForm
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data.strip().lower()).first()

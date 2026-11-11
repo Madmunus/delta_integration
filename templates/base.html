@@ -41,6 +41,9 @@
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'users' }}"
           {% if active_nav == 'users' %}aria-current="page"{% endif %}
           href="{{ url_for('users.list_users') }}">Пользователи</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'testing' }}"
+          {% if active_nav == 'testing' %}aria-current="page"{% endif %}
+          href="{{ url_for('testing.index') }}">Тестирование</a></li>
         {% endif %}
       </ul>
       <span class="navbar-text me-3">{{ current_user.fio }}

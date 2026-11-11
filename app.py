@@ -14,9 +14,10 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, logout_user
 from flask_wtf import CSRFProtect
 
-import models as _m  # noqa: F401  (регистрация моделей в db)
-from config import config
-from models import User, db
+from engine import models as _m  # noqa: F401  (регистрация моделей в db)
+from engine.config import config
+from engine.forms import PASSWORD_HINT
+from engine.models import User, db
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -46,6 +47,7 @@ def create_app(config_name=None):
     from routes.clients import bp as clients_bp
     from routes.reports import bp as reports_bp
     from routes.tasks import bp as tasks_bp
+    from routes.testing import bp as testing_bp
     from routes.users import bp as users_bp
 
     app.register_blueprint(auth_bp)
@@ -53,6 +55,7 @@ def create_app(config_name=None):
     app.register_blueprint(clients_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(users_bp)
+    app.register_blueprint(testing_bp)
 
     # Отключённый пользователь теряет доступ к системе сразу,
     # даже если его сессия была активной
@@ -78,13 +81,15 @@ def create_app(config_name=None):
             ('reports', '/reports'),
             ('bases', '/bases'),
             ('users', '/users'),
+            ('testing', '/testing'),
         ]
         active_nav = ''
         for key, prefix in nav_prefixes:
             if request.path == prefix or request.path.startswith(prefix + '/'):
                 active_nav = key
                 break
-        return {'current_user': current_user, 'active_nav': active_nav}
+        return {'current_user': current_user, 'active_nav': active_nav,
+                'PASSWORD_HINT': PASSWORD_HINT}
 
     @app.template_filter('dt')
     def format_date(value):

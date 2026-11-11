@@ -2,9 +2,10 @@
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
+from sqlalchemy import case
 
-from forms import UserForm
-from models import User, db
+from engine.forms import UserForm
+from engine.models import User, db
 
 bp = Blueprint('users', __name__)
 
@@ -33,7 +34,12 @@ def _would_lose_last_admin(user, new_role: str, new_active: bool) -> bool:
 def list_users():
     """Список пользователей системы."""
     _admin_required()
-    users = User.query.order_by(User.role, User.fio).all()
+    # Сначала руководители, затем сотрудники;
+    # внутри каждой группы — по фамилии (ФИО начинается с фамилии) по возрастанию
+    users = User.query.order_by(
+        case((User.role == 'admin', 0), else_=1),
+        User.fio.asc(),
+    ).all()
     return render_template('users/list.html', users=users)
 
 

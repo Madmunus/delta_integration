@@ -50,7 +50,7 @@
   <tbody>
   {% for d in deadlines %}
     <tr>
-      <td><a href="{{ url_for('tasks.edit_deadline', deadline_id=d.id) }}">{{ d.code }}</a></td>
+      <td>{% if current_user.is_admin %}<a href="{{ url_for('tasks.edit_deadline', deadline_id=d.id) }}">{{ d.code }}</a>{% else %}{{ d.code }}{% endif %}</td>
       <td>{{ d.name }}</td>
       <td>{{ d.periodicity_label }}</td>
       <td>{{ d.due_day }}</td>

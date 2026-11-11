@@ -102,7 +102,8 @@ class ODataClient:
         filt = ' and '.join(conditions) or None
         return self.query(
             entity,
-            select=['Ref_Key', 'Number', 'Date', 'Контрагент_Key', 'СуммаДокумента'],
+            select=['Ref_Key', 'Number', 'Date', 'Контрагент_Key',
+                    'СуммаДокумента', 'Статус'],
             filt=filt,
             order_by='Date desc',
             top=top,

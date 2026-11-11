@@ -3,8 +3,8 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 
-from forms import ReportingDeadlineForm, TaskForm
-from models import Client, ReportingDeadline, Task, User, db
+from engine.forms import ReportingDeadlineForm, TaskForm
+from engine.models import Client, ReportingDeadline, Task, User, db
 from services.tasks import generate_deadline_tasks, mark_overdue_tasks
 
 bp = Blueprint('tasks', __name__)

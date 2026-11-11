@@ -1,7 +1,8 @@
 """Конфигурация системы «Дельта»."""
 import os
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+# Корень проекта — родительская папка для engine/
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
 
 class Config:
@@ -41,8 +42,22 @@ class ProductionConfig(Config):
     SECRET_KEY = os.environ.get('DELTA_SECRET_KEY')
 
 
+class TestingConfig(Config):
+    """Изолированная конфигурация для сценарного тестирования системы.
+
+    База данных создаётся в памяти (sqlite://) и исчезает после теста,
+    CSRF отключён — тестовый клиент отправляет формы без токена.
+    """
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite://'
+    WTF_CSRF_ENABLED = False
+    SECRET_KEY = 'testing-secret'
+    DEADLINE_LEAD_DAYS = 7
+
+
 config = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
+    'testing': TestingConfig,
     'default': DevelopmentConfig,
 }

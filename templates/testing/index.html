@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Тестирование{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
+  <div>
+    <h1 class="h4 mb-1">Тестирование системы</h1>
+    <p class="text-muted mb-0">
+      Сценарии проверки функциональных требований ФТ-1…ФТ-7. Каждый сценарий
+      выполняется в изолированной базе данных и не затрагивает рабочие данные:
+      обращения к «1С» имитируются, реестры и задачи создаются во временной базе.
+    </p>
+  </div>
+  <form method="post" action="{{ url_for('testing.run_all') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-primary" type="submit">Выполнить все сценарии</button>
+  </form>
+</div>
+
+{% for sc in scenarios %}
+  {% set r = results.get(sc.id) %}
+  <div class="card mb-3" id="{{ sc.id }}">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div>
+        <span class="badge text-bg-dark me-2">{{ sc.ft }}</span>
+        <strong>Сценарий {{ loop.index }}. {{ sc.title }}</strong>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        {% if r %}
+          <span class="badge {{ 'text-bg-success' if r.status == 'passed' else 'text-bg-danger' }}">
+            {{ 'Пройден' if r.status == 'passed' else 'Не пройден' }}</span>
+        {% endif %}
+        <form method="post" action="{{ url_for('testing.run', scenario_id=sc.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-primary" type="submit">Выполнить</button>
+        </form>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="text-muted mb-3">{{ sc.description }}</p>
+
+      {% if r %}
+        <p class="small text-muted mb-2">
+          Запуск: {{ r.executed_at }} · длительность {{ r.duration_ms }} мс
+        </p>
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle">
+            <thead class="table-light"><tr>
+              <th style="width: 30%">Шаг</th>
+              <th style="width: 27%">Ожидаемый результат</th>
+              <th>Фактический результат</th>
+              <th class="text-center" style="width: 8%">Итог</th>
+            </tr></thead>
+            <tbody>
+            {% for s in r.steps %}
+              <tr class="{{ 'table-danger' if s.status == 'failed' }}">
+                <td>{{ s.name }}</td>
+                <td class="text-muted">{{ s.expected }}</td>
+                <td>{{ s.actual }}
+                  {% if s.details %}<pre class="small text-muted mb-0 mt-2">{{ s.details }}</pre>{% endif %}
+                </td>
+                <td class="text-center">
+                  <span class="badge {{ 'text-bg-success' if s.status == 'passed' else 'text-bg-danger' }}">
+                    {{ 'OK' if s.status == 'passed' else 'FAIL' }}</span>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="alert {{ 'alert-success' if r.status == 'passed' else 'alert-danger' }} mb-0 py-2">
+          <strong>Результат:</strong> {{ r.conclusion }}
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">Сценарий ещё не выполнялся.</p>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

@@ -1,15 +1,35 @@
 """Формы Flask-WTF: CSRF-защита и валидация данных."""
+import re
+
 from flask_wtf import FlaskForm
 from wtforms import (BooleanField, DateField, DecimalField, IntegerField,
                      PasswordField, SelectField, SelectMultipleField, StringField,
                      SubmitField, TextAreaField)
 from wtforms.validators import (DataRequired, Length, NumberRange,
-                                Optional, Regexp)
+                                Optional, Regexp, ValidationError)
 
 # Лёгкая проверка формата email без обращения к внешним сервисам
 # (email-validator по умолчанию отклоняет внутренние домены вида .local)
 EMAIL_RE = r'^[^@\s]+@[^@\s]+\.[^@\s]+$'
 EMAIL_MSG = 'Введите корректный email, например ivanov@company.ru'
+
+# Политика паролей: не менее 13 символов, минимум одна цифра,
+# заглавная и строчная латинские буквы, спецсимвол.
+PASSWORD_RULES = [
+    (r'.{13,}', 'не менее 13 символов'),
+    (r'\d', 'хотя бы одну цифру'),
+    (r'[A-Z]', 'хотя бы одну заглавную латинскую букву'),
+    (r'[a-z]', 'хотя бы одну строчную латинскую букву'),
+    (r'[^0-9A-Za-z]', 'хотя бы один спецсимвол'),
+]
+PASSWORD_HINT = ('не менее 13 символов, минимум одна цифра, '
+                 'заглавная и строчная латинские буквы, спецсимвол')
+
+
+def check_password_policy(value):
+    """Список нарушений политики паролей для заданного значения."""
+    return [msg for pattern, msg in PASSWORD_RULES
+            if not re.search(pattern, value or '')]
 
 
 class LoginForm(FlaskForm):
@@ -25,13 +45,17 @@ class UserForm(FlaskForm):
     email = StringField('Логин (email)', validators=[
         DataRequired(), Length(max=255), Regexp(EMAIL_RE, message=EMAIL_MSG)])
     # При редактировании пустой пароль = не менять
-    password = PasswordField('Пароль', validators=[
-        Optional(), Length(min=6, max=128,
-                           message='Пароль должен быть не короче 6 символов')])
+    password = PasswordField('Пароль', validators=[Optional(), Length(max=128)])
     role = SelectField('Роль', choices=[('admin', 'Руководитель'),
                                         ('employee', 'Сотрудник')])
     is_active = BooleanField('Активен')
     submit = SubmitField('Сохранить')
+
+    def validate_password(self, field):
+        """Проверка политики паролей (пустое значение не проверяем)."""
+        errors = check_password_policy(field.data)
+        if errors:
+            raise ValidationError('Пароль должен содержать ' + ', '.join(errors) + '.')
 
 
 class ClientForm(FlaskForm):

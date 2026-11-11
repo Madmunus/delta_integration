@@ -20,11 +20,19 @@
         </div>
         <div class="col-md-6">
           {{ form.password.label(class='form-label') }}
-          {{ form.password(class='form-control', autocomplete='new-password') }}
+          {{ form.password(class='form-control' ~ (' is-invalid' if form.password.errors),
+                           autocomplete='new-password') }}
+          {% if form.password.errors %}
+            <div class="invalid-feedback">
+              {% for e in form.password.errors %}{{ e }}{% endfor %}
+            </div>
+          {% endif %}
           {% if user %}
-            <div class="form-text">Оставьте пустым, чтобы сохранить текущий пароль.</div>
+            <div class="form-text">Оставьте пустым, чтобы сохранить текущий пароль.
+              Новый пароль: {{ PASSWORD_HINT }}.</div>
           {% else %}
-            <div class="form-text">Обязателен для нового пользователя (не короче 6 символов).</div>
+            <div class="form-text">Обязателен для нового пользователя:
+              {{ PASSWORD_HINT }}.</div>
           {% endif %}
         </div>
         <div class="col-md-6">

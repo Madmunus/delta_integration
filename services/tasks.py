@@ -11,7 +11,7 @@ from datetime import date
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import current_app
 
-from models import Client, ReportingDeadline, Task, db
+from engine.models import Client, ReportingDeadline, Task, db
 from services.sync import sync_clients
 
 logger = logging.getLogger(__name__)

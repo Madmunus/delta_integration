@@ -6,7 +6,7 @@ from flask import Blueprint, abort, render_template
 from flask_login import current_user, login_required
 from sqlalchemy import case, func
 
-from models import Client, Contract, ReportingDeadline, Task, User
+from engine.models import Client, Contract, ReportingDeadline, Task, User, db
 
 bp = Blueprint('reports', __name__)
 
@@ -73,23 +73,20 @@ def clients_report():
     """Отчёт по клиентской базе: активные, распределение по ответственным."""
     if not current_user.is_admin:
         abort(403)
-    rows = (db_session().query(
+    rows = (db.session.query(
                 User.fio,
                 func.count(Client.id),
                 func.sum(case((Client.status == 'active', 1), else_=0)),
             ).outerjoin(Client, Client.responsible_id == User.id)
              .group_by(User.id, User.fio)
              .order_by(User.fio)).all()
-    total = sum(r[1] for r in rows)
-    active = sum(r[2] or 0 for r in rows)
+    # Сводные показатели считаем напрямую по реестру: в таблице ниже
+    # отражены только клиенты с назначенным ответственным
+    total = Client.query.count()
+    active = Client.query.filter_by(status='active').count()
     unassigned = Client.query.filter(Client.responsible_id.is_(None)).count()
     return render_template('reports/clients.html', rows=rows, total=total,
                            active=active, unassigned=unassigned)
-
-
-def db_session():
-    from models import db
-    return db.session
 
 
 @bp.route('/reports/tasks')
@@ -98,7 +95,7 @@ def tasks_report():
     """Отчёт по задачам: выполненные, в работе, просроченные."""
     if not current_user.is_admin:
         abort(403)
-    rows = (db_session().query(
+    rows = (db.session.query(
                 User.fio,
                 func.sum(case((Task.status == 'done', 1), else_=0)),
                 func.sum(case((Task.status.in_(
