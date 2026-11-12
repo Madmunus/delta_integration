@@ -91,32 +91,33 @@ class ODataClient:
     def get_contracts(self) -> List[Dict[str, Any]]:
         """Договоры: справочник Catalog_Договоры базы «1С:Бухгалтерия» клиента.
 
-        Поля: Ref_Key, Контрагент_Key, Наименование, Дата, СрокДействия,
+        Поля: Ref_Key, Контрагент, Наименование, Дата, СрокДействия,
         Статус, Сумма, Description.
         """
         return self.query(
             'Catalog_Договоры',
-            select=['Ref_Key', 'Контрагент_Key', 'Наименование', 'Дата',
+            select=['Ref_Key', 'Контрагент', 'Наименование', 'Дата',
                     'СрокДействия', 'Статус', 'Сумма', 'Description'],
             order_by='Дата desc',
         )
 
     def get_documents(self, entity: str,
-                      date_from=None, date_to=None, contractor_key: str = None,
-                      top: int = 500) -> List[Dict[str, Any]]:
+                      date_from=None, date_to=None, client_key: str = None,
+                      contractor_key: str = None, top: int = 500) -> List[Dict[str, Any]]:
         """Документы за период с фильтрацией по дате и контрагенту."""
         conditions = []
         if date_from:
             conditions.append(f"Date ge datetime'{date_from.isoformat()}T00:00:00'")
         if date_to:
             conditions.append(f"Date le datetime'{date_to.isoformat()}T23:59:59'")
+        if client_key:
+            conditions.append(f"Организация eq guid'{client_key}'")
         if contractor_key:
-            conditions.append(f"Контрагент_Key eq guid'{contractor_key}'")
+            conditions.append(f"Контрагент eq guid'{contractor_key}'")
         filt = ' and '.join(conditions) or None
         return self.query(
             entity,
-            select=['Ref_Key', 'Number', 'Date', 'Контрагент_Key',
-                    'СуммаДокумента', 'Статус'],
+            select=['Ref_Key', 'Number', 'Date', 'Организация', 'Контрагент', 'Статус'],
             filt=filt,
             order_by='Date desc',
             top=top,

@@ -149,7 +149,7 @@ class Contract(db.Model):
     signed_date = db.Column(db.Date, nullable=False, default=date.today)  # Дата
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
     contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
-    contractor_ref = db.Column(db.String(64), index=True)      # Контрагент_Key
+    contractor_ref = db.Column(db.String(64), index=True)      # Контрагент
     external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key
     description = db.Column(db.Text, nullable=False, default='')  # Description из 1С
     amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Сумма
@@ -293,13 +293,14 @@ class DocumentRef(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
+    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), nullable=False, index=True)
     doc_type = db.Column(db.String(255), nullable=False, default='')
     number = db.Column(db.String(64), nullable=False, default='')
     doc_date = db.Column(db.Date)
     amount = db.Column(db.Numeric(12, 2))
     status = db.Column(db.String(64), nullable=False, default='')
-    external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:ДО
-    external_url = db.Column(db.String(512))             # ссылка на объект в 1С:ДО
+    external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:Документооборот
+    external_url = db.Column(db.String(512))             # ссылка на объект в 1С:Документооборот
 
     client = db.relationship('Client', back_populates='documents')
 

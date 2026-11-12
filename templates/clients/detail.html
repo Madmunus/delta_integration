@@ -111,7 +111,7 @@
           <td class="text-end">{{ d.amount|money if d.amount is not none else '—' }}</td>
           <td>{{ d.status or '—' }}</td>
           <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
-              rel="noopener noreferrer">открыть в 1С:ДО</a>{% else %}—{% endif %}</td>
+              rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
         </tr>
       {% else %}
         <tr><td colspan="6" class="text-muted">Документы из «1С:Документооборот»

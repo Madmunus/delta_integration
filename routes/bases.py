@@ -63,13 +63,6 @@ def run_sync():
     return redirect(url_for('bases.settings'))
 
 
-@bp.route('/sync/run', methods=['POST'])
-@login_required
-def run_sync_legacy():
-    """Совместимый адрес ручной синхронизации."""
-    return run_sync()
-
-
 @bp.route('/bases/sync-contracts', methods=['POST'])
 @login_required
 def run_contracts_sync():

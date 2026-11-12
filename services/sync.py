@@ -211,7 +211,7 @@ def sync_contracts(client: Client) -> dict:
         try:
             ref_key = _clean(row.get('Ref_Key'))
             number = _clean(row.get('Наименование')) or '(без номера)'
-            contractor_ref = _clean(row.get('Контрагент_Key'))
+            contractor_ref = _clean(row.get('Контрагент'))
             contractor = (Contractor.query.filter_by(external_ref=contractor_ref).first()
                           if contractor_ref else None)
 
@@ -266,7 +266,7 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
     """Загрузка входящих документов из «1С:Документооборот» (ФТ-2).
 
     Обновляет таблицу DocumentRef: реквизиты документа (тип, номер, дата,
-    сумма, статус) и привязка к клиенту по внешней ссылке контрагента
+    сумма, статус) и привязка к клиенту по внешней ссылке клиента
     (Ref_Key). Документы с нераспознанным контрагентом пропускаются.
     Возвращает количество обработанных записей.
     """
@@ -286,11 +286,18 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
         if not ref_key:
             continue
 
-        # Привязка документа к клиенту по внешней ссылке контрагента
-        contractor_key = row.get('Контрагент_Key') or ''
-        client = (Client.query.filter_by(external_ref=contractor_key).first()
-                  if contractor_key else None)
+        # Привязка документа к клиенту по внешней ссылке клиента
+        client_key = row.get('Организация') or ''
+        client = (Client.query.filter_by(external_ref=client_key).first()
+                  if client_key else None)
         if client is None:
+            continue
+
+        # Привязка документа к контрагенту по внешней ссылке контрагента
+        contractor_key = row.get('Контрагент') or ''
+        contractor = (Contractor.query.filter_by(external_ref=contractor_key).first()
+                  if contractor_key else None)
+        if contractor is None:
             continue
 
         doc = DocumentRef.query.filter_by(external_ref=ref_key).first()
@@ -298,6 +305,7 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
             doc = DocumentRef(external_ref=ref_key)
             db.session.add(doc)
         doc.client_id = client.id
+        doc.contractor_id = contractor.id
         doc.doc_type = entity.replace('Document_', '')
         doc.number = str(row.get('Number') or '')
         doc.doc_date = _parse_date(row.get('Date'))
