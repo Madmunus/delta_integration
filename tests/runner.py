@@ -16,8 +16,9 @@ SCENARIOS = [
     ('scenario_2', 'tests.scenario_2_documents'),
     ('scenario_3', 'tests.scenario_3_tasks'),
     ('scenario_4', 'tests.scenario_4_deadlines'),
-    ('scenario_5', 'tests.scenario_5_reports'),
-    ('scenario_6', 'tests.scenario_6_access'),
+    ('scenario_5', 'tests.scenario_5_contracts'),
+    ('scenario_6', 'tests.scenario_6_reports'),
+    ('scenario_7', 'tests.scenario_7_access'),
 ]
 
 

@@ -2,14 +2,14 @@
 {% block title %}Сроки отчётности{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Справочник сроков сдачи отчётности</h1>
+  <h1 class="h4 mb-0">Сроки отчётности</h1>
   <div>
     {% if current_user.is_admin %}
-    <form class="d-inline" method="post" action="{{ url_for('tasks.generate_tasks_now') }}">
+    <form class="d-inline" method="post" action="{{ url_for('deadlines.generate_tasks_now') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-success">Сформировать задачи по срокам</button>
     </form>
-    <a class="btn btn-primary" href="{{ url_for('tasks.edit_deadline') }}">+ Добавить форму</a>
+    <a class="btn btn-primary" href="{{ url_for('deadlines.edit_deadline') }}">+ Добавить форму</a>
     {% endif %}
   </div>
 </div>
@@ -50,7 +50,7 @@
   <tbody>
   {% for d in deadlines %}
     <tr>
-      <td>{% if current_user.is_admin %}<a href="{{ url_for('tasks.edit_deadline', deadline_id=d.id) }}">{{ d.code }}</a>{% else %}{{ d.code }}{% endif %}</td>
+      <td>{% if current_user.is_admin %}<a href="{{ url_for('deadlines.edit_deadline', deadline_id=d.id) }}">{{ d.code }}</a>{% else %}{{ d.code }}{% endif %}</td>
       <td>{{ d.name }}</td>
       <td>{{ d.periodicity_label }}</td>
       <td>{{ d.due_day }}</td>

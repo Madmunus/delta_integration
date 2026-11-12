@@ -1,4 +1,4 @@
-"""Клиент OData для взаимодействия с учётными базами «1С» и «1С:Документооборот».
+"""Клиент OData для взаимодействия с «1С:Предприятие» и «1С:Бухгалтерия».
 
 Обёртка над requests: Basic Auth, таймауты, обработка ошибок, разбор JSON.
 Пример стандартного URL: http://server/base/odata/standard.odata/
@@ -16,7 +16,7 @@ class ODataError(Exception):
 
 
 class ODataClient:
-    """Инкапсулирует доступ к OData-интерфейсу конкретной учётной базы 1С."""
+    """Инкапсулирует доступ к OData-интерфейсу конкретной базы 1С."""
 
     def __init__(self, base_url: str, username: str, password: str,
                  timeout: int = 15, verify_ssl: bool = True):
@@ -51,12 +51,7 @@ class ODataClient:
     def query(self, entity: str, select: Optional[Iterable[str]] = None,
               filt: Optional[str] = None, order_by: Optional[str] = None,
               top: Optional[int] = None, skip: int = 0) -> List[Dict[str, Any]]:
-        """Универсальная выборка сущности с фильтрацией.
-
-        Пример: client.query('Catalog_Контрагенты',
-                             select=['Description', 'ИНН'],
-                             filt="DeletionMark eq false")
-        """
+        """Универсальная выборка сущности с фильтрацией."""
         params: Dict[str, Any] = {'$skip': skip}
         if select:
             params['$select'] = ','.join(select)
@@ -70,28 +65,46 @@ class ODataClient:
         return data.get('value', [])
 
     # ------------------------------------------------------- типовые запросы
-    def get_contractors(self) -> List[Dict[str, Any]]:
-        """Справочник контрагентов/организаций: наименование, ИНН, КПП.
+    def get_organizations(self) -> List[Dict[str, Any]]:
+        """Клиенты: справочник Catalog_Организации главной базы 1С.
 
-        Используется при синхронизации реестра клиентов (ФТ-1).
-        В конфигурациях на БСП сущность обычно Catalog_Контрагенты;
-        вариант Catalog_Организации — для учётной базы самой фирмы.
+        Поля: Ref_Key, Наименование, ИНН, DeletionMark
+        (0 — активный, 1 — неактивный).
         """
-        rows = self.query(
-            'Catalog_Контрагенты',
-            select=['Ref_Key', 'Description', 'ИНН', 'КПП', 'DeletionMark'],
-            order_by='Description',
+        return self.query(
+            'Catalog_Организации',
+            select=['Ref_Key', 'Наименование', 'ИНН', 'DeletionMark'],
+            order_by='Наименование',
         )
-        return [r for r in rows if not r.get('DeletionMark', False)]
 
-    def get_documents(self, entity: str = 'Document_ПоступлениеТоваровУслуг',
+    def get_contractors(self) -> List[Dict[str, Any]]:
+        """Контрагенты: справочник Catalog_Контрагенты главной базы 1С.
+
+        Поля: Ref_Key, НаименованиеПолное, ИНН, КПП, Description.
+        """
+        return self.query(
+            'Catalog_Контрагенты',
+            select=['Ref_Key', 'НаименованиеПолное', 'ИНН', 'КПП', 'Description'],
+            order_by='НаименованиеПолное',
+        )
+
+    def get_contracts(self) -> List[Dict[str, Any]]:
+        """Договоры: справочник Catalog_Договоры базы «1С:Бухгалтерия» клиента.
+
+        Поля: Ref_Key, Контрагент_Key, Наименование, Дата, СрокДействия,
+        Статус, Сумма, Description.
+        """
+        return self.query(
+            'Catalog_Договоры',
+            select=['Ref_Key', 'Контрагент_Key', 'Наименование', 'Дата',
+                    'СрокДействия', 'Статус', 'Сумма', 'Description'],
+            order_by='Дата desc',
+        )
+
+    def get_documents(self, entity: str,
                       date_from=None, date_to=None, contractor_key: str = None,
                       top: int = 500) -> List[Dict[str, Any]]:
-        """Документы за период с фильтрацией по дате и контрагенту.
-
-        Формирует $filter вида:
-        Date ge datetime'2026-01-01T00:00:00' and Date le datetime'...'
-        """
+        """Документы за период с фильтрацией по дате и контрагенту."""
         conditions = []
         if date_from:
             conditions.append(f"Date ge datetime'{date_from.isoformat()}T00:00:00'")
@@ -110,7 +123,7 @@ class ODataClient:
         )
 
     def test_connection(self) -> bool:
-        """Проверка доступности сервиса (для формы настройки баз)."""
+        """Проверка доступности сервиса (для формы настройки)."""
         try:
             # Дешёвая проверка: корневой запрос к сервису с обработкой ошибок.
             self._session.get(self.base_url, timeout=self.timeout).raise_for_status()
@@ -122,10 +135,19 @@ class ODataClient:
         self._session.close()
 
 
-def client_for_base(odata_base) -> ODataClient:
-    """Фабрика: создать клиент для записи ODataBase из модели."""
+def client_for_settings(settings) -> ODataClient:
+    """Фабрика: клиент OData по настройке главной базы 1С."""
     return ODataClient(
-        base_url=odata_base.odata_url,
-        username=odata_base.username,
-        password=odata_base.password,
+        base_url=settings.odata_url,
+        username=settings.username,
+        password=settings.password,
+    )
+
+
+def client_for_client(client) -> ODataClient:
+    """Фабрика: клиент OData по настройкам «1С:Бухгалтерия» клиента."""
+    return ODataClient(
+        base_url=client.odata_url,
+        username=client.odata_username,
+        password=client.odata_password,
     )

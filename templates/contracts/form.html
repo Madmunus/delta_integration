@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% block title %}{{ 'Договор №' + contract.number if contract.number else 'Новый договор' }}{% endblock %}
+{% block title %}Договор № {{ contract.number }}{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">{{ 'Договор № ' + contract.number if contract.number else 'Новый договор' }}</h1>
+<h1 class="h4 mb-4">Договор № {{ contract.number }}</h1>
 <div class="card" style="max-width: 760px;">
   <div class="card-body">
     <form method="post" novalidate>
@@ -15,9 +15,13 @@
           {{ form.signed_date.label(class='form-label') }}
           {{ form.signed_date(class='form-control', type='date') }}
         </div>
-        <div class="col-md-12">
+        <div class="col-md-6">
           {{ form.client_id.label(class='form-label') }}
           {{ form.client_id(class='form-select') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.contractor_id.label(class='form-label') }}
+          {{ form.contractor_id(class='form-select') }}
         </div>
         <div class="col-md-4">
           {{ form.amount.label(class='form-label') }}
@@ -36,14 +40,13 @@
           {{ form.status(class='form-select') }}
         </div>
         <div class="col-md-12">
-          {{ form.subject.label(class='form-label') }}
-          {{ form.subject(class='form-control', rows=4,
-             placeholder='Перечень услуг по бухгалтерскому сопровождению') }}
+          {{ form.description.label(class='form-label') }}
+          {{ form.description(class='form-control', rows=2) }}
         </div>
       </div>
       <div class="mt-3">
         {{ form.submit(class='btn btn-primary') }}
-        <a class="btn btn-outline-secondary" href="{{ url_for('clients.list_contracts') }}">Отмена</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('contracts.list_contracts') }}">Отмена</a>
       </div>
     </form>
   </div>

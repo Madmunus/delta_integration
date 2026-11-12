@@ -1,86 +1,267 @@
-"""Синхронизация справочных данных из учётных баз «1С».
+"""Синхронизация данных из «1С:Предприятие» и «1С:Бухгалтерия».
 
-Для каждой зарегистрированной базы выполняется запрос справочника
-контрагентов, полученные записи сопоставляются с существующими клиентами
-по ИНН (или Ref_Key) — обновляются либо создаются новые.
+Главная база (одна настройка OneCSetting):
+  * Catalog_Организации → клиенты реестра;
+  * Catalog_Контрагенты → справочник контрагентов.
+
+Каждый клиент может иметь собственные реквизиты подключения к своей
+базе «1С:Бухгалтерия»; по ним загружается справочник Catalog_Договоры.
 """
 import logging
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
-from engine.models import Client, DocumentRef, ODataBase, db
-from services.odata_client import ODataError, client_for_base
+from engine.models import (Client, Contractor, Contract, DocumentRef,
+                           OneCSetting, db)
+from services.odata_client import (ODataError, client_for_client,
+                                   client_for_settings)
 
 logger = logging.getLogger(__name__)
 
 
-def _upsert_client(base: ODataBase, row: dict) -> str:
-    """Создать или обновить клиента из строки OData. Возвращает действие."""
-    inn = (row.get('ИНН') or '').strip()
-    ref_key = row.get('Ref_Key') or ''
-    name = (row.get('Description') or '').strip() or '(без наименования)'
-    kpp = (row.get('КПП') or '').strip()
+def _clean(value) -> str:
+    return str(value).strip() if value is not None else ''
+
+
+def _is_deletion_mark(value) -> bool:
+    """DeletionMark: 0/False — активен, 1/True — неактивен."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return _clean(value).lower() in ('1', 'true', 'да', 'yes')
+
+
+def _parse_date(value):
+    """Дата из OData (ISO, ISO с временем или ДД.ММ.ГГГГ)."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = _clean(value)
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text, '%d.%m.%Y').date()
+    except ValueError:
+        return None
+
+
+def _parse_amount(value) -> Decimal:
+    if value is None or value == '':
+        return Decimal('0')
+    try:
+        return Decimal(str(value).replace(',', '.'))
+    except (InvalidOperation, ValueError):
+        return Decimal('0')
+
+
+def _map_contract_status(raw: str) -> str:
+    """Привести «Статус» из 1С к внутренним draft/active/closed."""
+    text = _clean(raw).lower()
+    if not text:
+        return 'draft'
+    if any(word in text for word in ('действ', 'актив', 'подпис', 'active')):
+        return 'active'
+    if any(word in text for word in ('заверш', 'закрыт', 'расторг', 'closed')):
+        return 'closed'
+    return 'draft'
+
+
+# --------------------------------------------------------------- организации
+def _upsert_client(row: dict) -> str:
+    """Создать или обновить клиента из Catalog_Организации."""
+    ref_key = _clean(row.get('Ref_Key'))
+    inn = _clean(row.get('ИНН'))
+    name = _clean(row.get('Наименование')) or _clean(row.get('Description'))
+    name = name or '(без наименования)'
+    status = 'archived' if _is_deletion_mark(row.get('DeletionMark')) else 'active'
 
     client = None
-    # Сопоставление: сначала по внешней ссылке, затем по ИНН
     if ref_key:
         client = Client.query.filter_by(external_ref=ref_key).first()
     if client is None and inn:
         client = Client.query.filter_by(inn=inn).first()
 
     if client is None:
-        client = Client(name=name, inn=inn or None, kpp=kpp or None,
-                        odata_base_id=base.id, external_ref=ref_key or None)
+        client = Client(name=name, inn=inn or None, status=status,
+                        external_ref=ref_key or None)
         db.session.add(client)
         action = 'created'
     else:
         client.name = name
-        client.kpp = kpp or client.kpp
-        client.odata_base_id = base.id
+        if inn:
+            client.inn = inn
+        client.status = status
         if ref_key:
             client.external_ref = ref_key
         action = 'updated'
-
-    # Реквизиты ИНН/КПП не затираем пустыми значениями из 1С
-    if not client.inn and inn:
-        client.inn = inn
     return action
 
 
+# ----------------------------------------------------------------- контрагенты
+def _upsert_contractor(row: dict) -> str:
+    """Создать или обновить контрагента из Catalog_Контрагенты."""
+    ref_key = _clean(row.get('Ref_Key'))
+    full_name = (_clean(row.get('НаименованиеПолное'))
+                 or _clean(row.get('Description'))
+                 or '(без наименования)')
+    inn = _clean(row.get('ИНН'))
+    kpp = _clean(row.get('КПП'))
+    description = _clean(row.get('Description'))
+
+    contractor = None
+    if ref_key:
+        contractor = Contractor.query.filter_by(external_ref=ref_key).first()
+    if contractor is None and inn:
+        contractor = Contractor.query.filter_by(inn=inn).first()
+
+    if contractor is None:
+        contractor = Contractor(external_ref=ref_key or None)
+        db.session.add(contractor)
+        action = 'created'
+    else:
+        action = 'updated'
+
+    contractor.full_name = full_name
+    contractor.inn = inn or None
+    contractor.kpp = kpp or None
+    contractor.description = description
+    contractor.synced_at = datetime.utcnow()
+    return action
+
+
+# ------------------------------------------------------------------ синхронизация
 def sync_clients() -> dict:
-    """Синхронизация реестра клиентов из всех включённых учётных баз.
+    """Синхронизация клиентов и контрагентов из главной базы 1С.
 
-    Вызывается планировщиком (ежечасно) и вручную со страницы баз.
-    Ручные атрибуты (статус, ответственный, заметки) не перезаписываются.
+    Вызывается планировщиком и вручную со страницы «1С База».
+    Ручные атрибуты клиентов (ответственный, заметки, реквизиты
+    подключения к «1С:Бухгалтерия») не перезаписываются.
     """
-    stats = {'bases': 0, 'created': 0, 'updated': 0, 'errors': []}
-    for base in ODataBase.query.filter_by(is_enabled=True).all():
-        stats['bases'] += 1
+    stats = {'created': 0, 'updated': 0,
+             'contractors_created': 0, 'contractors_updated': 0,
+             'errors': []}
+    setting = OneCSetting.get()
+    if not setting.odata_url:
+        stats['errors'].append('Не настроено подключение к базе 1С:Предприятие')
+        return stats
+
+    api = client_for_settings(setting)
+    try:
+        organizations = api.get_organizations()
+        contractors = api.get_contractors()
+    except ODataError as exc:
+        msg = f'Ошибка подключения к 1С: {exc}'
+        logger.warning(msg)
+        stats['errors'].append(msg)
+        return stats
+    finally:
+        api.close()
+
+    for row in organizations:
         try:
-            client_api = client_for_base(base)
-            rows = client_api.get_contractors()
-            client_api.close()
-        except ODataError as exc:
-            msg = f'База «{base.name}»: {exc}'
-            logger.warning('Ошибка синхронизации: %s', msg)
-            stats['errors'].append(msg)
-            continue
+            stats[_upsert_client(row)] += 1
+        except Exception as exc:  # защита от битых строк
+            logger.exception('Ошибка обработки организации: %r', row)
+            stats['errors'].append(f'Организация: {exc}')
 
-        for row in rows:
-            try:
-                action = _upsert_client(base, row)
-                stats[action] += 1
-            except Exception as exc:  # защита от битых строк
-                logger.exception('Ошибка обработки контрагента: %r', row)
-                stats['errors'].append(f'База «{base.name}»: {exc}')
+    for row in contractors:
+        try:
+            action = _upsert_contractor(row)
+            key = 'contractors_created' if action == 'created' else 'contractors_updated'
+            stats[key] += 1
+        except Exception as exc:  # защита от битых строк
+            logger.exception('Ошибка обработки контрагента: %r', row)
+            stats['errors'].append(f'Контрагент: {exc}')
 
-        base.last_sync_at = datetime.utcnow()
-
+    setting.last_sync_at = datetime.utcnow()
+    if setting not in db.session:
+        db.session.add(setting)
     db.session.commit()
-    logger.info('Синхронизация завершена: %s', stats)
+    logger.info('Синхронизация 1С завершена: %s', stats)
     return stats
 
 
-def sync_documents(base: ODataBase, entity: str = 'Document_ВходящееПисьмо',
+# --------------------------------------------------------------------- договоры
+def sync_contracts(client: Client) -> dict:
+    """Загрузить договоры клиента из его базы «1С:Бухгалтерия»."""
+    stats = {'created': 0, 'updated': 0, 'errors': []}
+    if not client.odata_url:
+        stats['errors'].append(
+            f'У клиента «{client.name}» не настроено подключение к 1С:Бухгалтерия')
+        return stats
+
+    api = client_for_client(client)
+    try:
+        rows = api.get_contracts()
+    except ODataError as exc:
+        msg = f'Клиент «{client.name}»: {exc}'
+        logger.warning('Ошибка загрузки договоров: %s', msg)
+        stats['errors'].append(msg)
+        return stats
+    finally:
+        api.close()
+
+    for row in rows:
+        try:
+            ref_key = _clean(row.get('Ref_Key'))
+            number = _clean(row.get('Наименование')) or '(без номера)'
+            contractor_ref = _clean(row.get('Контрагент_Key'))
+            contractor = (Contractor.query.filter_by(external_ref=contractor_ref).first()
+                          if contractor_ref else None)
+
+            contract = (Contract.query.filter_by(external_ref=ref_key).first()
+                        if ref_key else None)
+            if contract is None:
+                contract = Contract(number=number, client_id=client.id,
+                                    external_ref=ref_key or None)
+                db.session.add(contract)
+                action = 'created'
+            else:
+                action = 'updated'
+
+            contract.client_id = client.id
+            contract.number = number
+            contract.signed_date = (_parse_date(row.get('Дата'))
+                                    or contract.signed_date or date.today())
+            contract.end_date = _parse_date(row.get('СрокДействия'))
+            contract.status_1c = _clean(row.get('Статус'))
+            contract.status = _map_contract_status(row.get('Статус'))
+            contract.amount = _parse_amount(row.get('Сумма'))
+            description = _clean(row.get('Description'))
+            contract.description = description
+            contract.contractor_ref = contractor_ref or None
+            contract.contractor_id = contractor.id if contractor else None
+            stats[action] += 1
+        except Exception as exc:  # защита от битых строк
+            logger.exception('Ошибка обработки договора: %r', row)
+            stats['errors'].append(f'Договор: {exc}')
+
+    db.session.commit()
+    logger.info('Договоры клиента «%s»: %s', client.name, stats)
+    return stats
+
+
+def sync_all_contracts() -> dict:
+    """Загрузить договоры по всем клиентам с настроенным подключением."""
+    stats = {'clients': 0, 'created': 0, 'updated': 0, 'errors': []}
+    clients = Client.query.filter(Client.odata_url != '').order_by(Client.name).all()
+    for client in clients:
+        stats['clients'] += 1
+        result = sync_contracts(client)
+        stats['created'] += result['created']
+        stats['updated'] += result['updated']
+        stats['errors'].extend(result['errors'])
+    return stats
+
+
+# --------------------------------------------------------------------- документы
+def sync_documents(settings=None, entity: str = 'Document_ВходящееПисьмо',
                    days: int = 30) -> int:
     """Загрузка входящих документов из «1С:Документооборот» (ФТ-2).
 
@@ -89,11 +270,15 @@ def sync_documents(base: ODataBase, entity: str = 'Document_ВходящееПи
     (Ref_Key). Документы с нераспознанным контрагентом пропускаются.
     Возвращает количество обработанных записей.
     """
-    client_api = client_for_base(base)
+    setting = settings or OneCSetting.get()
+    if not setting.odata_url:
+        return 0
+
+    api = client_for_settings(setting)
     try:
-        rows = client_api.get_documents(entity=entity, top=500)
+        rows = api.get_documents(entity=entity, top=500)
     finally:
-        client_api.close()
+        api.close()
 
     processed = 0
     for row in rows:
@@ -115,13 +300,7 @@ def sync_documents(base: ODataBase, entity: str = 'Document_ВходящееПи
         doc.client_id = client.id
         doc.doc_type = entity.replace('Document_', '')
         doc.number = str(row.get('Number') or '')
-        raw_date = row.get('Date')
-        if isinstance(raw_date, str) and len(raw_date) >= 10:
-            try:
-                from datetime import date as _date
-                doc.doc_date = _date.fromisoformat(raw_date[:10])
-            except ValueError:
-                pass
+        doc.doc_date = _parse_date(row.get('Date'))
         doc.status = str(row.get('Статус') or '')
         amount = row.get('СуммаДокумента')
         try:

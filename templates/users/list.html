@@ -2,7 +2,7 @@
 {% block title %}Пользователи{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Пользователи системы</h1>
+  <h1 class="h4 mb-0">Пользователи <span class="text-muted">({{ users_total }})</span></h1>
   <a class="btn btn-primary" href="{{ url_for('users.add_user') }}">+ Добавить пользователя</a>
 </div>
 

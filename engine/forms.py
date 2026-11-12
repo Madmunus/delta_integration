@@ -23,13 +23,55 @@ PASSWORD_RULES = [
     (r'[^0-9A-Za-z]', 'хотя бы один спецсимвол'),
 ]
 PASSWORD_HINT = ('не менее 13 символов, минимум одна цифра, '
-                 'заглавная и строчная латинские буквы, спецсимвол')
+                 'заглавная и строчная латинские буквы, спецсимвол; '
+                 'без частей логина и транслитерации ФИО')
+
+# Транслитерация кириллицы для проверки пароля на части ФИО
+TRANSLIT_MAP = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
+    'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k',
+    'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r',
+    'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+    'ч': 'ch', 'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '',
+    'э': 'e', 'ю': 'yu', 'я': 'ya',
+}
+# Минимальная длина совпадающей части логина/ФИО, запрещённой в пароле
+PASSWORD_IDENTITY_PART_LEN = 4
 
 
 def check_password_policy(value):
     """Список нарушений политики паролей для заданного значения."""
     return [msg for pattern, msg in PASSWORD_RULES
             if not re.search(pattern, value or '')]
+
+
+def transliterate(text):
+    """Транслитерация кириллического текста в латиницу."""
+    return ''.join(TRANSLIT_MAP.get(ch, ch) for ch in (text or '').lower())
+
+
+def _identity_parts(login, fio):
+    """Части логина и транслитерации ФИО, которые нельзя включать в пароль."""
+    sources = [(login or '').split('@', 1)[0]]
+    sources += re.findall(r'[a-z0-9]+', transliterate(fio))
+    parts = set()
+    for source in sources:
+        source = re.sub(r'[^a-z0-9]', '', source.lower())
+        if not source:
+            continue
+        if len(source) < PASSWORD_IDENTITY_PART_LEN:
+            if len(source) >= 2:
+                parts.add(source)
+            continue
+        for i in range(len(source) - PASSWORD_IDENTITY_PART_LEN + 1):
+            parts.add(source[i:i + PASSWORD_IDENTITY_PART_LEN])
+    return parts
+
+
+def password_contains_identity(value, login, fio):
+    """True, если пароль содержит часть логина или транслитерации ФИО."""
+    lowered = (value or '').lower()
+    return any(part in lowered for part in _identity_parts(login, fio))
 
 
 class LoginForm(FlaskForm):
@@ -40,36 +82,60 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Войти')
 
 
-class UserForm(FlaskForm):
+class AccountForm(FlaskForm):
+    """Базовые поля учётной записи: ФИО, логин и смена пароля."""
     fio = StringField('ФИО', validators=[DataRequired(), Length(max=255)])
     email = StringField('Логин (email)', validators=[
         DataRequired(), Length(max=255), Regexp(EMAIL_RE, message=EMAIL_MSG)])
     # При редактировании пустой пароль = не менять
     password = PasswordField('Пароль', validators=[Optional(), Length(max=128)])
-    role = SelectField('Роль', choices=[('admin', 'Руководитель'),
-                                        ('employee', 'Сотрудник')])
-    is_active = BooleanField('Активен')
+    password_confirm = PasswordField('Подтверждение пароля', validators=[
+        Optional(), Length(max=128)])
     submit = SubmitField('Сохранить')
 
     def validate_password(self, field):
         """Проверка политики паролей (пустое значение не проверяем)."""
+        if not field.data:
+            return
         errors = check_password_policy(field.data)
         if errors:
-            raise ValidationError('Пароль должен содержать ' + ', '.join(errors) + '.')
+            raise ValidationError('Пароль должен содержать '
+                                  + ', '.join(errors) + '.')
+        if password_contains_identity(field.data,
+                                      self.email.data or '',
+                                      self.fio.data or ''):
+            raise ValidationError('Пароль не должен содержать частей логина '
+                                  'или транслитерации ФИО.')
+
+    def validate_password_confirm(self, field):
+        """Пароль и подтверждение должны совпадать."""
+        if (self.password.data or '') != (field.data or ''):
+            raise ValidationError('Пароли не совпадают.')
+
+
+class UserForm(AccountForm):
+    """Карточка пользователя для руководителя: плюс роль и активность."""
+    role = SelectField('Роль', choices=[('admin', 'Руководитель'),
+                                        ('employee', 'Сотрудник')])
+    is_active = BooleanField('Активен')
+
+
+class ProfileForm(AccountForm):
+    """Самостоятельное редактирование своих данных без роли и активности."""
 
 
 class ClientForm(FlaskForm):
-    name = StringField('Наименование', validators=[DataRequired(), Length(max=512)])
-    inn = StringField('ИНН', validators=[
-        Optional(), Length(10, 12),
-        Regexp(r'^\d+$', message='ИНН должен содержать только цифры')])
-    kpp = StringField('КПП', validators=[
-        Optional(), Length(9), Regexp(r'^\d+$', message='КПП должен содержать только цифры')])
-    status = SelectField('Статус', choices=[('active', 'Активный'),
-                                            ('archived', 'Архивный')])
+    """Редактирование клиента: ответственный, заметки и реквизиты 1С."""
     responsible_id = SelectField('Ответственный сотрудник', coerce=int,
                                  validators=[Optional()])
     notes = TextAreaField('Заметки', validators=[Optional(), Length(max=5000)])
+    # Подключение к «1С:Бухгалтерия» клиента (справочник Catalog_Договоры)
+    odata_url = StringField('URL OData', validators=[
+        Optional(), Length(max=512),
+        Regexp(r'^(https?://.+)?$',
+               message='URL должен начинаться с http:// или https://')])
+    odata_username = StringField('Пользователь', validators=[Optional(), Length(max=255)])
+    odata_password = PasswordField('Пароль', validators=[Optional(), Length(max=512)])
     submit = SubmitField('Сохранить')
 
 
@@ -77,7 +143,8 @@ class ContractForm(FlaskForm):
     number = StringField('Номер договора', validators=[DataRequired(), Length(max=64)])
     signed_date = DateField('Дата договора', validators=[DataRequired()])
     client_id = SelectField('Клиент', coerce=int, validators=[DataRequired()])
-    subject = TextAreaField('Предмет / перечень услуг', validators=[Optional()])
+    contractor_id = SelectField('Контрагент', coerce=int, validators=[Optional()])
+    description = TextAreaField('Описание', validators=[Optional()])
     amount = DecimalField('Стоимость, руб.', places=2, validators=[
         Optional(), NumberRange(min=0)])
     start_date = DateField('Действует с', validators=[Optional()])
@@ -119,12 +186,11 @@ class ReportingDeadlineForm(FlaskForm):
     submit = SubmitField('Сохранить')
 
 
-class ODataBaseForm(FlaskForm):
-    name = StringField('Наименование базы', validators=[DataRequired(), Length(max=255)])
+class OneCSettingForm(FlaskForm):
+    """Настройка единственного подключения к главной базе 1С:Предприятие."""
     odata_url = StringField('URL OData', validators=[
         DataRequired(), Length(max=512),
         Regexp(r'^https?://', message='URL должен начинаться с http:// или https://')])
     username = StringField('Пользователь', validators=[Optional(), Length(max=255)])
     password = PasswordField('Пароль', validators=[Optional(), Length(max=512)])
-    is_enabled = BooleanField('Включена')
-    submit = SubmitField('Сохранить')
+    submit = SubmitField('Сохранить настройку')

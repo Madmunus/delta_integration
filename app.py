@@ -42,18 +42,28 @@ def create_app(config_name=None):
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
-    # --- Маршруты ---
+    # --- Маршруты (отдельный модуль на каждый раздел навигации) ---
     from routes.auth import bp as auth_bp
+    from routes.bases import bp as bases_bp
     from routes.clients import bp as clients_bp
+    from routes.contractors import bp as contractors_bp
+    from routes.contracts import bp as contracts_bp
+    from routes.dashboard import bp as dashboard_bp
+    from routes.deadlines import bp as deadlines_bp
     from routes.reports import bp as reports_bp
     from routes.tasks import bp as tasks_bp
     from routes.testing import bp as testing_bp
     from routes.users import bp as users_bp
 
     app.register_blueprint(auth_bp)
-    app.register_blueprint(reports_bp)   # включает /dashboard
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(reports_bp)
     app.register_blueprint(clients_bp)
+    app.register_blueprint(contractors_bp)
+    app.register_blueprint(contracts_bp)
     app.register_blueprint(tasks_bp)
+    app.register_blueprint(deadlines_bp)
+    app.register_blueprint(bases_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(testing_bp)
 
@@ -75,6 +85,7 @@ def create_app(config_name=None):
         nav_prefixes = [
             ('dashboard', '/dashboard'),
             ('clients', '/clients'),
+            ('contractors', '/contractors'),
             ('contracts', '/contracts'),
             ('tasks', '/tasks'),
             ('deadlines', '/deadlines'),
@@ -126,7 +137,7 @@ def create_app(config_name=None):
     @app.route('/')
     def index():
         if current_user.is_authenticated:
-            return redirect(url_for('reports.dashboard'))
+            return redirect(url_for('dashboard.index'))
         return redirect(url_for('auth.login'))
 
     # --- База данных ---

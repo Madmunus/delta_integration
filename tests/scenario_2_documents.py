@@ -6,13 +6,13 @@
 """
 from datetime import date
 
-from engine.models import Client, DocumentRef, ODataBase, db
+from engine.models import Client, DocumentRef, OneCSetting, db
 from services.sync import sync_documents
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
                         login, seed_users)
 
 FT = 'ФТ-2'
-TITLE = 'Запрос документов клиента из «1С:Документооборот» через OData'
+TITLE = 'Загрузка документов клиента из «1С:Документооборот»'
 DESCRIPTION = ('Запрос документов клиента из «1С:Документооборот» через OData; '
                'отображение в карточке клиента. Результат: документы '
                'отображаются с корректными реквизитами.')
@@ -41,10 +41,10 @@ def run():
     seed_users(app)
 
     with app.app_context():
-        db.session.add(ODataBase(
-            name='Тестовая база 1С:Документооборот',
+        db.session.add(OneCSetting(
+            id=1,
             odata_url='http://test-do.local/odata/standard.odata/',
-            username='odata', password='secret', is_enabled=True))
+            username='odata', password='secret'))
         db.session.add(Client(
             name='ООО «Альфа-Тест»', inn='7701111111', kpp='770101001',
             status='active', external_ref=ALPHA_KEY))
@@ -52,10 +52,10 @@ def run():
 
     # --- Шаг 1. Загрузка документов через OData ------------------------
     with app.app_context():
-        base = ODataBase.query.first()
+        setting = OneCSetting.get()
         client_id = Client.query.filter_by(inn='7701111111').first().id
         with fake_1c(documents=DOCUMENTS):
-            processed = sync_documents(base)
+            processed = sync_documents(setting)
     steps.check(processed == 2,
                 'Запрос документов через OData',
                 'обработано 2 документа клиента; документ неизвестного '
@@ -103,9 +103,9 @@ def run():
 
     # --- Шаг 4. Повторная загрузка не создаёт дублей -------------------
     with app.app_context():
-        base = ODataBase.query.first()
+        setting = OneCSetting.get()
         with fake_1c(documents=DOCUMENTS):
-            sync_documents(base)
+            sync_documents(setting)
         total = DocumentRef.query.count()
     steps.check(total == 2,
                 'Повторная загрузка не дублирует документы',

@@ -45,44 +45,76 @@ class User(UserMixin, db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Учётная база 1С, зарегистрированная в системе (источник OData)
+# Единственная настройка подключения к главной базе «1С:Предприятие»
 # ----------------------------------------------------------------------------
-class ODataBase(db.Model):
-    __tablename__ = 'odata_bases'
+class OneCSetting(db.Model):
+    """URL OData, пользователь и пароль главной базы 1С:Предприятие.
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    odata_url = db.Column(db.String(512), nullable=False)
+    По этой настройке загружаются клиенты (Catalog_Организации) и
+    контрагенты (Catalog_Контрагенты).
+    """
+    __tablename__ = 'onec_settings'
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    odata_url = db.Column(db.String(512), nullable=False, default='')
     username = db.Column(db.String(255), nullable=False, default='')
     password = db.Column(db.String(512), nullable=False, default='')
-    is_enabled = db.Column(db.Boolean, nullable=False, default=True)
     last_sync_at = db.Column(db.DateTime)
 
-    clients = db.relationship('Client', back_populates='odata_base', lazy='dynamic')
+    @classmethod
+    def get(cls):
+        """Вернуть настройку; при первом обращении — новый объект в памяти."""
+        return db.session.get(cls, 1) or cls(id=1)
 
     def __repr__(self):
-        return f'<ODataBase {self.name}>'
+        return f'<OneCSetting {self.odata_url or "не настроено"}>'
 
 
 # ----------------------------------------------------------------------------
-# Клиент (ФТ-1: сводный реестр, идентификационные данные + ручное дополнение)
+# Контрагент (ФТ-1: справочник Catalog_Контрагенты)
+# ----------------------------------------------------------------------------
+class Contractor(db.Model):
+    __tablename__ = 'contractors'
+
+    id = db.Column(db.Integer, primary_key=True)
+    external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key в Catalog_Контрагенты
+    full_name = db.Column(db.String(512), nullable=False, default='')  # НаименованиеПолное
+    inn = db.Column(db.String(12), index=True)
+    kpp = db.Column(db.String(9))
+    description = db.Column(db.Text, nullable=False, default='')
+    synced_at = db.Column(db.DateTime)
+
+    contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
+
+    @property
+    def display_name(self) -> str:
+        return self.full_name or self.description or self.external_ref or '—'
+
+    def __repr__(self):
+        return f'<Contractor {self.full_name or self.external_ref}>'
+
+
+# ----------------------------------------------------------------------------
+# Клиент (ФТ-1: справочник Catalog_Организации)
 # ----------------------------------------------------------------------------
 class Client(db.Model):
     __tablename__ = 'clients'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(512), nullable=False, index=True)
-    inn = db.Column(db.String(12), index=True)
+    name = db.Column(db.String(512), nullable=False, index=True)       # Наименование
+    inn = db.Column(db.String(12), index=True)                         # ИНН
     kpp = db.Column(db.String(9))
     status = db.Column(db.String(20), nullable=False, default='active')  # active | archived
     responsible_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    odata_base_id = db.Column(db.Integer, db.ForeignKey('odata_bases.id'))
-    external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С
+    external_ref = db.Column(db.String(64), index=True)  # Ref_Key в Catalog_Организации
+    # Подключение к «1С:Бухгалтерия» конкретного клиента (Catalog_Договоры)
+    odata_url = db.Column(db.String(512), nullable=False, default='')
+    odata_username = db.Column(db.String(255), nullable=False, default='')
+    odata_password = db.Column(db.String(512), nullable=False, default='')
     date_added = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=False, default='')
 
     responsible = db.relationship('User', back_populates='clients')
-    odata_base = db.relationship('ODataBase', back_populates='clients')
     contracts = db.relationship('Contract', back_populates='client', lazy='dynamic',
                                 cascade='all, delete-orphan')
     tasks = db.relationship('Task', back_populates='client', lazy='dynamic',
@@ -98,32 +130,47 @@ class Client(db.Model):
     def active_contracts(self):
         return [c for c in self.contracts if c.status == 'active']
 
+    @property
+    def has_odata(self) -> bool:
+        return bool(self.odata_url)
+
     def __repr__(self):
         return f'<Client {self.name}>'
 
 
 # ----------------------------------------------------------------------------
-# Договор на бухгалтерское сопровождение (ФТ-5)
+# Договор (ФТ-5: справочник Catalog_Договоры)
 # ----------------------------------------------------------------------------
 class Contract(db.Model):
     __tablename__ = 'contracts'
 
     id = db.Column(db.Integer, primary_key=True)
-    number = db.Column(db.String(64), nullable=False)
-    signed_date = db.Column(db.Date, nullable=False, default=date.today)
+    number = db.Column(db.String(64), nullable=False)          # Наименование
+    signed_date = db.Column(db.Date, nullable=False, default=date.today)  # Дата
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
-    subject = db.Column(db.Text, nullable=False, default='')      # предмет / перечень услуг
-    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # стоимость
+    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
+    contractor_ref = db.Column(db.String(64), index=True)      # Контрагент_Key
+    external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key
+    description = db.Column(db.Text, nullable=False, default='')  # Description из 1С
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Сумма
     start_date = db.Column(db.Date)
-    end_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)                              # СрокДействия
     status = db.Column(db.String(20), nullable=False, default='draft')  # draft | active | closed
+    status_1c = db.Column(db.String(64), nullable=False, default='')   # Статус из 1С
 
     client = db.relationship('Client', back_populates='contracts')
+    contractor = db.relationship('Contractor', back_populates='contracts')
 
     @property
     def status_label(self):
         return {'draft': 'проект', 'active': 'действующий', 'closed': 'завершённый'}.get(
             self.status, self.status)
+
+    @property
+    def contractor_name(self) -> str:
+        if self.contractor is not None:
+            return self.contractor.display_name
+        return self.contractor_ref or '—'
 
     def __repr__(self):
         return f'<Contract №{self.number}>'

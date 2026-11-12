@@ -11,7 +11,7 @@ bp = Blueprint('auth', __name__)
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('reports.dashboard'))
+        return redirect(url_for('dashboard.index'))
 
     form = LoginForm()
     if form.validate_on_submit():
@@ -28,7 +28,7 @@ def login():
         # Защита от open redirect
         if next_url and not next_url.startswith('/'):
             next_url = None
-        return redirect(next_url or url_for('reports.dashboard'))
+        return redirect(next_url or url_for('dashboard.index'))
 
     return render_template('login.html', form=form)
 

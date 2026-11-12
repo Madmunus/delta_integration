@@ -24,8 +24,7 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Реестр клиентов</h1>
-  <a class="btn btn-primary" href="{{ url_for('clients.add') }}">+ Добавить клиента</a>
+  <h1 class="h4 mb-0">Клиенты <span class="text-muted">({{ total }})</span></h1>
 </div>
 
 <form class="row g-2 mb-3" method="get">
@@ -116,7 +115,7 @@
   {% for c in pagination.items %}
     <tr>
       <td><a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a>
-          {% if c.odata_base %}<span class="badge text-bg-info" title="Синхронизируется из 1С">1С</span>{% endif %}</td>
+          {% if c.external_ref %}<span class="badge text-bg-info" title="Синхронизируется из 1С">1С</span>{% endif %}</td>
       <td class="text-nowrap">{{ c.inn or '—' }}</td>
       <td>{{ c.kpp or '—' }}</td>
       <td>

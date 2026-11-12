@@ -1,10 +1,10 @@
-"""Управление пользователями (доступ только руководителю, ФТ-7)."""
+"""Управление пользователями: руководитель — все, сотрудник — свои данные."""
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case
 
-from engine.forms import UserForm
+from engine.forms import ProfileForm, UserForm
 from engine.models import User, db
 
 bp = Blueprint('users', __name__)
@@ -40,7 +40,7 @@ def list_users():
         case((User.role == 'admin', 0), else_=1),
         User.fio.asc(),
     ).all()
-    return render_template('users/list.html', users=users)
+    return render_template('users/list.html', users=users, users_total=len(users))
 
 
 @bp.route('/users/add', methods=['GET', 'POST'])
@@ -69,25 +69,33 @@ def add_user():
             db.session.commit()
             flash(f'Пользователь «{user.fio}» создан', 'success')
             return redirect(url_for('users.list_users'))
-    return render_template('users/form.html', form=form, user=None)
+    return render_template('users/form.html', form=form, user=None,
+                           is_admin_form=True)
 
 
 @bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_user(user_id):
-    """Карточка пользователя: логин, пароль, роль, активность."""
-    _admin_required()
+    """Карточка пользователя: свои данные доступны любому пользователю."""
     user = User.query.get_or_404(user_id)
-    form = UserForm(obj=user)
+    is_self = user.id == current_user.id
+    is_admin = current_user.is_admin
+    if not (is_admin or is_self):
+        abort(403)
+
+    form_cls = UserForm if is_admin else ProfileForm
+    form = form_cls(obj=user)
 
     if request.method == 'GET':
-        form.is_active.data = user.is_active_flag
+        if is_admin:
+            form.is_active.data = user.is_active_flag
         form.password.data = ''  # текущий пароль не показываем
+        form.password_confirm.data = ''
 
     if form.validate_on_submit():
         email = form.email.data.strip().lower()
-        new_role = form.role.data
-        new_active = form.is_active.data
+        new_role = form.role.data if is_admin else user.role
+        new_active = form.is_active.data if is_admin else user.is_active_flag
 
         if User.query.filter(User.email == email,
                              User.id != user.id).first():
@@ -100,16 +108,20 @@ def edit_user(user_id):
         else:
             user.fio = form.fio.data.strip()
             user.email = email
-            user.role = new_role
-            user.is_active_flag = new_active
+            if is_admin:
+                user.role = new_role
+                user.is_active_flag = new_active
             if form.password.data:
                 user.set_password(form.password.data)
                 flash('Пароль обновлён', 'info')
             db.session.commit()
             flash(f'Пользователь «{user.fio}» сохранён', 'success')
+            if is_self:
+                return redirect(url_for('users.edit_user', user_id=user.id))
             return redirect(url_for('users.list_users'))
 
-    return render_template('users/form.html', form=form, user=user)
+    return render_template('users/form.html', form=form, user=user,
+                           is_admin_form=is_admin)
 
 
 @bp.route('/users/<int:user_id>/toggle', methods=['POST'])

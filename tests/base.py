@@ -76,19 +76,27 @@ def create_scenario_app():
     return app
 
 
-def fake_1c(contractors=None, documents=None):
+def fake_1c(organizations=None, contractors=None, contracts=None,
+            documents=None):
     """Контекст-менеджер: подмена HTTP-запросов к «1С» (OData).
 
-    contractors — строки справочника Catalog_Контрагенты (синхронизация
-    реестра клиентов, ФТ-1); documents — строки сущности Document_*
-    из «1С:Документооборот» (загрузка документов, ФТ-2).
+    organizations — строки Catalog_Организации (клиенты реестра, ФТ-1);
+    contractors — строки Catalog_Контрагенты (справочник контрагентов);
+    contracts — строки Catalog_Договоры (договоры клиента, ФТ-5);
+    documents — строки Document_* из «1С:Документооборот» (ФТ-2).
     """
+    organizations = organizations or []
     contractors = contractors or []
+    contracts = contracts or []
     documents = documents or []
 
     def fake_get(self, url, **kwargs):
-        if 'Catalog_' in url:
+        if 'Catalog_Организации' in url:
+            return FakeResponse({'value': organizations})
+        if 'Catalog_Контрагенты' in url:
             return FakeResponse({'value': contractors})
+        if 'Catalog_Договоры' in url:
+            return FakeResponse({'value': contracts})
         if 'Document_' in url:
             return FakeResponse({'value': documents})
         return FakeResponse({'value': []})

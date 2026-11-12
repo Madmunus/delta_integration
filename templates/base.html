@@ -11,33 +11,33 @@
 {% if current_user.is_authenticated %}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
   <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('reports.dashboard') }}">Δ Дельта</a>
+    <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">Δ Дельта</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
             data-bs-target="#navmenu"><span class="navbar-toggler-icon"></span></button>
     <div class="collapse navbar-collapse" id="navmenu">
       <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'dashboard' }}"
-          {% if active_nav == 'dashboard' %}aria-current="page"{% endif %}
-          href="{{ url_for('reports.dashboard') }}">Панель</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'clients' }}"
           {% if active_nav == 'clients' %}aria-current="page"{% endif %}
           href="{{ url_for('clients.list_clients') }}">Клиенты</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'contractors' }}"
+          {% if active_nav == 'contractors' %}aria-current="page"{% endif %}
+          href="{{ url_for('contractors.list_contractors') }}">Контрагенты</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'contracts' }}"
           {% if active_nav == 'contracts' %}aria-current="page"{% endif %}
-          href="{{ url_for('clients.list_contracts') }}">Договоры</a></li>
+          href="{{ url_for('contracts.list_contracts') }}">Договоры</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'tasks' }}"
           {% if active_nav == 'tasks' %}aria-current="page"{% endif %}
           href="{{ url_for('tasks.list_tasks') }}">Задачи</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'deadlines' }}"
           {% if active_nav == 'deadlines' %}aria-current="page"{% endif %}
-          href="{{ url_for('tasks.list_deadlines') }}">Сроки отчётности</a></li>
+          href="{{ url_for('deadlines.list_deadlines') }}">Сроки отчётности</a></li>
         {% if current_user.is_admin %}
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'reports' }}"
           {% if active_nav == 'reports' %}aria-current="page"{% endif %}
           href="{{ url_for('reports.index') }}">Отчёты</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'bases' }}"
           {% if active_nav == 'bases' %}aria-current="page"{% endif %}
-          href="{{ url_for('clients.list_bases') }}">Базы 1С</a></li>
+          href="{{ url_for('bases.settings') }}">1С База</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'users' }}"
           {% if active_nav == 'users' %}aria-current="page"{% endif %}
           href="{{ url_for('users.list_users') }}">Пользователи</a></li>
@@ -46,7 +46,10 @@
           href="{{ url_for('testing.index') }}">Тестирование</a></li>
         {% endif %}
       </ul>
-      <span class="navbar-text me-3">{{ current_user.fio }}
+      <span class="navbar-text me-3">
+        <a class="link-light text-decoration-none"
+           href="{{ url_for('users.edit_user', user_id=current_user.id) }}"
+           title="Редактировать мои данные">{{ current_user.fio }}</a>
         {% if current_user.is_admin %}<span class="badge text-bg-warning">руководитель</span>{% endif %}
       </span>
       <a class="btn btn-outline-light btn-sm"

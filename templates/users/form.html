@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}{{ 'Карточка пользователя' if user else 'Новый пользователь' }}{% endblock %}
+{% block title %}{{ 'Карточка пользователя' if user and is_admin_form else ('Мои данные' if user else 'Новый пользователь') }}{% endblock %}
 {% block content %}
 <h1 class="h4 mb-4">
-  {% if user %}Карточка пользователя: {{ user.fio }}
+  {% if user and is_admin_form %}Карточка пользователя: {{ user.fio }}
+  {% elif user %}Мои данные
   {% else %}Новый пользователь{% endif %}
 </h1>
 <div class="card" style="max-width: 720px;">
@@ -12,11 +13,22 @@
       <div class="row g-3">
         <div class="col-md-6">
           {{ form.fio.label(class='form-label') }}
-          {{ form.fio(class='form-control') }}
+          {{ form.fio(class='form-control' ~ (' is-invalid' if form.fio.errors)) }}
+          {% if form.fio.errors %}
+            <div class="invalid-feedback">
+              {% for e in form.fio.errors %}{{ e }}{% endfor %}
+            </div>
+          {% endif %}
         </div>
         <div class="col-md-6">
           {{ form.email.label(class='form-label') }}
-          {{ form.email(class='form-control', autocomplete='off') }}
+          {{ form.email(class='form-control' ~ (' is-invalid' if form.email.errors),
+                        autocomplete='off') }}
+          {% if form.email.errors %}
+            <div class="invalid-feedback">
+              {% for e in form.email.errors %}{{ e }}{% endfor %}
+            </div>
+          {% endif %}
         </div>
         <div class="col-md-6">
           {{ form.password.label(class='form-label') }}
@@ -27,30 +39,44 @@
               {% for e in form.password.errors %}{{ e }}{% endfor %}
             </div>
           {% endif %}
-          {% if user %}
-            <div class="form-text">Оставьте пустым, чтобы сохранить текущий пароль.
-              Новый пароль: {{ PASSWORD_HINT }}.</div>
-          {% else %}
-            <div class="form-text">Обязателен для нового пользователя:
-              {{ PASSWORD_HINT }}.</div>
+        </div>
+        <div class="col-md-6">
+          {{ form.password_confirm.label(class='form-label') }}
+          {{ form.password_confirm(class='form-control' ~ (' is-invalid' if form.password_confirm.errors),
+                                   autocomplete='new-password') }}
+          {% if form.password_confirm.errors %}
+            <div class="invalid-feedback">
+              {% for e in form.password_confirm.errors %}{{ e }}{% endfor %}
+            </div>
           {% endif %}
         </div>
+        <div class="col-12">
+          <div class="form-text">
+            {% if user %}
+              Оставьте оба поля пустыми, чтобы сохранить текущий пароль.
+            {% else %}
+              Пароль обязателен для нового пользователя.
+            {% endif %}
+            Новый пароль: {{ PASSWORD_HINT }}.
+          </div>
+        </div>
+        {% if is_admin_form %}
         <div class="col-md-6">
           {{ form.role.label(class='form-label') }}
           {{ form.role(class='form-select') }}
         </div>
         <div class="col-md-6">
-          <div class="form-check mt-2">
+          <div class="form-check" style="margin-top: 2.4rem !important;">
             {{ form.is_active(class='form-check-input') }}
             {{ form.is_active.label(class='form-check-label') }}
           </div>
-          <div class="form-text">Отключённый пользователь не может входить
-            в систему и работать в ней.</div>
         </div>
+        {% endif %}
       </div>
       <div class="mt-3">
         {{ form.submit(class='btn btn-primary') }}
-        <a class="btn btn-outline-secondary" href="{{ url_for('users.list_users') }}">Отмена</a>
+        <a class="btn btn-outline-secondary"
+           href="{{ url_for('users.list_users') if is_admin_form else url_for('dashboard.index') }}">Отмена</a>
       </div>
     </form>
   </div>

@@ -2,40 +2,41 @@
 {% block title %}Договоры{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Договоры на сопровождение</h1>
-  <a class="btn btn-primary" href="{{ url_for('clients.edit_contract') }}">+ Новый договор</a>
+  <h1 class="h4 mb-0">Договоры <span class="text-muted">({{ contracts_total }})</span></h1>
 </div>
 
 <ul class="nav nav-pills mb-3">
   <li class="nav-item"><a class="nav-link {{ 'active' if not status }}"
-    href="{{ url_for('clients.list_contracts') }}">Все</a></li>
+    href="{{ url_for('contracts.list_contracts') }}">Все</a></li>
   {% for s, label in [('draft', 'Проект'), ('active', 'Действующие'), ('closed', 'Завершённые')] %}
     <li class="nav-item"><a class="nav-link {{ 'active' if status == s }}"
-      href="{{ url_for('clients.list_contracts', status=s) }}">{{ label }}</a></li>
+      href="{{ url_for('contracts.list_contracts', status=s) }}">{{ label }}</a></li>
   {% endfor %}
 </ul>
 
+<div class="table-responsive">
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
-    <th>№</th><th>Дата</th><th>Клиент</th><th>Предмет</th>
+    <th>№</th><th>Дата</th><th>Клиент</th><th>Контрагент</th>
     <th class="text-end">Стоимость</th><th>Действие</th><th>Статус</th>
   </tr></thead>
   <tbody>
   {% for c in contracts %}
     <tr>
-      <td><a href="{{ url_for('clients.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
+      <td><a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
       <td class="text-nowrap">{{ c.signed_date|dt }}</td>
       <td><a href="{{ url_for('clients.detail', client_id=c.client_id) }}">{{ c.client.name }}</a></td>
-      <td>{{ c.subject|truncate(60) }}</td>
+      <td>{{ c.contractor_name }}</td>
       <td class="text-end">{{ c.amount|money }}</td>
       <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
       <td><span class="badge
         {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
-        {{ c.status_label }}</span></td>
+        {{ c.status_1c or c.status_label }}</span></td>
     </tr>
   {% else %}
     <tr><td colspan="7" class="text-muted">Договоров нет</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

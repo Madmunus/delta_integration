@@ -1,41 +1,53 @@
 {% extends 'base.html' %}
-{% block title %}{{ 'Редактирование клиента' if client else 'Новый клиент' }}{% endblock %}
+{% block title %}Редактирование клиента{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">{{ 'Редактирование клиента' if client else 'Новый клиент' }}</h1>
-<div class="card" style="max-width: 720px;">
+<h1 class="h4 mb-4">Редактирование клиента: {{ client.name }}</h1>
+<div class="card" style="max-width: 760px;">
   <div class="card-body">
     <form method="post" novalidate>
       {{ form.hidden_tag() }}
       <div class="row g-3">
-        <div class="col-12">
-          {{ form.name.label(class='form-label') }}
-          {{ form.name(class='form-control') }}
-        </div>
-        <div class="col-md-6">
-          {{ form.inn.label(class='form-label') }}
-          {{ form.inn(class='form-control') }}
-        </div>
-        <div class="col-md-6">
-          {{ form.kpp.label(class='form-label') }}
-          {{ form.kpp(class='form-control') }}
-        </div>
-        <div class="col-md-6">
-          {{ form.status.label(class='form-label') }}
-          {{ form.status(class='form-select') }}
-        </div>
         <div class="col-md-6">
           {{ form.responsible_id.label(class='form-label') }}
           {{ form.responsible_id(class='form-select') }}
         </div>
         <div class="col-12">
           {{ form.notes.label(class='form-label') }}
-          {{ form.notes(class='form-control', rows=4) }}
+          {{ form.notes(class='form-control', rows=3) }}
         </div>
       </div>
+
+      <hr class="my-4">
+      <h2 class="h6 mb-1">Подключение к «1С:Бухгалтерия» клиента</h2>
+      <p class="text-muted small mb-3">
+        По этим реквизитам загружается справочник
+        <code>Catalog_Договоры</code> (номер, дата, срок действия, статус,
+        сумма и контрагент).
+      </p>
+      <div class="row g-3">
+        <div class="col-12">
+          {{ form.odata_url.label(class='form-label') }}
+          {{ form.odata_url(class='form-control',
+             placeholder='http://server/client-base/odata/standard.odata/') }}
+          {% for error in form.odata_url.errors %}
+            <div class="text-danger small">{{ error }}</div>
+          {% endfor %}
+        </div>
+        <div class="col-md-6">
+          {{ form.odata_username.label(class='form-label') }}
+          {{ form.odata_username(class='form-control', autocomplete='off') }}
+        </div>
+        <div class="col-md-6">
+          {{ form.odata_password.label(class='form-label') }}
+          {{ form.odata_password(class='form-control', autocomplete='new-password',
+             placeholder='Оставьте пустым, чтобы не менять') }}
+        </div>
+      </div>
+
       <div class="mt-3">
         {{ form.submit(class='btn btn-primary') }}
         <a class="btn btn-outline-secondary"
-           href="{{ url_for('clients.detail', client_id=client.id) if client else url_for('clients.list_clients') }}">Отмена</a>
+           href="{{ url_for('clients.detail', client_id=client.id) }}">Отмена</a>
       </div>
     </form>
   </div>

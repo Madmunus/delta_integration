@@ -1,24 +1,27 @@
 {% extends 'base.html' %}
 {% block title %}{{ client.name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-3">
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
     <h1 class="h4 mb-1">{{ client.name }}
       {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
       {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
-      {% if client.odata_base %}<span class="badge text-bg-info">база: {{ client.odata_base.name }}</span>{% endif %}
+      {% if client.external_ref %}<span class="badge text-bg-info">1С</span>{% endif %}
     </h1>
     <p class="text-muted mb-0">ИНН {{ client.inn or '—' }} · КПП {{ client.kpp or '—' }} ·
       добавлен {{ client.date_added|dt }} ·
       ответственный: {{ client.responsible.fio if client.responsible else 'не назначен' }}</p>
   </div>
-  <div>
+  <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-outline-primary btn-sm"
        href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
-    <a class="btn btn-outline-success btn-sm"
-       href="{{ url_for('clients.edit_contract') }}?client={{ client.id }}">+ Договор</a>
     <a class="btn btn-outline-secondary btn-sm"
        href="{{ url_for('tasks.edit_task') }}?client={{ client.id }}">+ Задача</a>
+    <form method="post"
+          action="{{ url_for('clients.sync_client_contracts', client_id=client.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-success btn-sm">Загрузить договоры из 1С</button>
+    </form>
   </div>
 </div>
 
@@ -39,8 +42,14 @@
       <dt class="col-sm-3">Полное наименование</dt><dd class="col-sm-9">{{ client.name }}</dd>
       <dt class="col-sm-3">ИНН</dt><dd class="col-sm-9">{{ client.inn or '—' }}</dd>
       <dt class="col-sm-3">КПП</dt><dd class="col-sm-9">{{ client.kpp or '—' }}</dd>
-      <dt class="col-sm-3">Учётная база 1С</dt>
-      <dd class="col-sm-9">{{ client.odata_base.name if client.odata_base else 'не связана' }}</dd>
+      <dt class="col-sm-3">Ref_Key</dt>
+      <dd class="col-sm-9"><code>{{ client.external_ref or '—' }}</code></dd>
+      <dt class="col-sm-3">URL OData (1С:Бухгалтерия)</dt>
+      <dd class="col-sm-9">{{ client.odata_url or 'не настроено' }}</dd>
+      <dt class="col-sm-3">Пользователь</dt>
+      <dd class="col-sm-9">{{ client.odata_username or '—' }}</dd>
+      <dt class="col-sm-3">Пароль</dt>
+      <dd class="col-sm-9">{{ '••••••••' if client.odata_password else '—' }}</dd>
       <dt class="col-sm-3">Заметки</dt>
       <dd class="col-sm-9" style="white-space: pre-wrap;">{{ client.notes or '—' }}</dd>
     </dl>
@@ -48,19 +57,19 @@
 
   <div class="tab-pane fade" id="tab-contracts">
     <table class="table table-sm align-middle">
-      <thead><tr><th>№</th><th>Дата</th><th>Предмет</th>
+      <thead><tr><th>№</th><th>Дата</th><th>Контрагент</th>
         <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th></tr></thead>
       <tbody>
       {% for c in contracts %}
         <tr>
-          <td><a href="{{ url_for('clients.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
+          <td><a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
           <td>{{ c.signed_date|dt }}</td>
-          <td>{{ c.subject|truncate(70) }}</td>
+          <td>{{ c.contractor_name }}</td>
           <td class="text-end">{{ c.amount|money }}</td>
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
           <td><span class="badge
             {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
-            {{ c.status_label }}</span></td>
+            {{ c.status_1c or c.status_label }}</span></td>
         </tr>
       {% else %}
         <tr><td colspan="6" class="text-muted">Договоров нет</td></tr>

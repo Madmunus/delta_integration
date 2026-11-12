@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Контрагенты{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">Контрагенты <span class="text-muted">({{ contractors_total }})</span></h1>
+  </div>
+</div>
+
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead class="table-light">
+    <tr>
+      <th>Наименование полное</th>
+      <th>ИНН</th>
+      <th>КПП</th>
+      <th>Описание</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in contractors %}
+    <tr>
+      <td>{{ c.full_name or '—' }}</td>
+      <td class="text-nowrap">{{ c.inn or '—' }}</td>
+      <td>{{ c.kpp or '—' }}</td>
+      <td>{{ c.description|truncate(80) if c.description else '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="text-muted">
+      Контрагенты появятся после синхронизации с базой 1С:Предприятие
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
