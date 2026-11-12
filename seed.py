@@ -249,8 +249,7 @@ def main():
         contractors = []
         for ref, full_name, inn, kpp, description in CONTRACTORS:
             c = Contractor(external_ref=ref, full_name=full_name,
-                           inn=inn, kpp=kpp, description=description,
-                           synced_at=datetime.utcnow())
+                           inn=inn, kpp=kpp, description=description)
             db.session.add(c)
             contractors.append(c)
         db.session.flush()

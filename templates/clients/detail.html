@@ -108,7 +108,6 @@
           <td>{{ d.doc_type }}</td>
           <td>{{ d.number }}</td>
           <td class="text-nowrap">{{ d.doc_date|dt }}</td>
-          <td class="text-end">{{ d.amount|money if d.amount is not none else '—' }}</td>
           <td>{{ d.status or '—' }}</td>
           <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
               rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>

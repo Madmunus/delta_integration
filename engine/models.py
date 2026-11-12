@@ -82,7 +82,6 @@ class Contractor(db.Model):
     inn = db.Column(db.String(12), index=True)
     kpp = db.Column(db.String(9))
     description = db.Column(db.Text, nullable=False, default='')
-    synced_at = db.Column(db.DateTime)
 
     contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
 
@@ -119,7 +118,7 @@ class Client(db.Model):
                                 cascade='all, delete-orphan')
     tasks = db.relationship('Task', back_populates='client', lazy='dynamic',
                             cascade='all, delete-orphan')
-    documents = db.relationship('DocumentRef', back_populates='client', lazy='dynamic',
+    documents = db.relationship('Document', back_populates='client', lazy='dynamic',
                                 cascade='all, delete-orphan')
 
     @property
@@ -288,8 +287,8 @@ class ReportingDeadline(db.Model):
 # ----------------------------------------------------------------------------
 # Документ из «1С:Документооборот» (ФТ-2)
 # ----------------------------------------------------------------------------
-class DocumentRef(db.Model):
-    __tablename__ = 'document_refs'
+class Document(db.Model):
+    __tablename__ = 'documents'
 
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
@@ -297,7 +296,6 @@ class DocumentRef(db.Model):
     doc_type = db.Column(db.String(255), nullable=False, default='')
     number = db.Column(db.String(64), nullable=False, default='')
     doc_date = db.Column(db.Date)
-    amount = db.Column(db.Numeric(12, 2))
     status = db.Column(db.String(64), nullable=False, default='')
     external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:Документооборот
     external_url = db.Column(db.String(512))             # ссылка на объект в 1С:Документооборот
@@ -305,4 +303,4 @@ class DocumentRef(db.Model):
     client = db.relationship('Client', back_populates='documents')
 
     def __repr__(self):
-        return f'<DocumentRef {self.doc_type} №{self.number}>'
+        return f'<Document {self.doc_type} №{self.number}>'

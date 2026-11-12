@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from engine.models import (Client, Contractor, Contract, DocumentRef,
+from engine.models import (Client, Contractor, Contract, Document,
                            OneCSetting, db)
 from services.odata_client import (ODataError, client_for_client,
                                    client_for_settings)
@@ -131,7 +131,6 @@ def _upsert_contractor(row: dict) -> str:
     contractor.inn = inn or None
     contractor.kpp = kpp or None
     contractor.description = description
-    contractor.synced_at = datetime.utcnow()
     return action
 
 
@@ -265,8 +264,8 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
                    days: int = 30) -> int:
     """Загрузка входящих документов из «1С:Документооборот» (ФТ-2).
 
-    Обновляет таблицу DocumentRef: реквизиты документа (тип, номер, дата,
-    сумма, статус) и привязка к клиенту по внешней ссылке клиента
+    Обновляет таблицу Document: документы (тип, номер, дата, статус)
+    и привязка к клиенту по внешней ссылке клиента
     (Ref_Key). Документы с нераспознанным контрагентом пропускаются.
     Возвращает количество обработанных записей.
     """
@@ -300,9 +299,9 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
         if contractor is None:
             continue
 
-        doc = DocumentRef.query.filter_by(external_ref=ref_key).first()
+        doc = Document.query.filter_by(external_ref=ref_key).first()
         if doc is None:
-            doc = DocumentRef(external_ref=ref_key)
+            doc = Document(external_ref=ref_key)
             db.session.add(doc)
         doc.client_id = client.id
         doc.contractor_id = contractor.id
@@ -310,11 +309,6 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
         doc.number = str(row.get('Number') or '')
         doc.doc_date = _parse_date(row.get('Date'))
         doc.status = str(row.get('Статус') or '')
-        amount = row.get('СуммаДокумента')
-        try:
-            doc.amount = float(amount) if amount is not None else None
-        except (TypeError, ValueError):
-            doc.amount = None
         db.session.commit()
         processed += 1
     return processed

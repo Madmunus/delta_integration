@@ -7,7 +7,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import case, or_
 
 from engine.forms import ClientForm
-from engine.models import Client, Contract, DocumentRef, Task, User, db
+from engine.models import Client, Contract, Document, Task, User, db
 from services.sync import sync_contracts
 
 bp = Blueprint('clients', __name__)
@@ -129,7 +129,7 @@ def detail(client_id):
         abort(403)
     contracts = client.contracts.order_by(Contract.signed_date.desc()).all()
     tasks = client.tasks.order_by(Task.due_date.asc().nullslast()).all()
-    documents = client.documents.order_by(DocumentRef.doc_date.desc().nullslast()).all()
+    documents = client.documents.order_by(Document.doc_date.desc().nullslast()).all()
     return render_template('clients/detail.html', client=client,
                            contracts=contracts, tasks=tasks,
                            documents=documents)
