@@ -3,7 +3,9 @@
 Вход под учётной записью сотрудника; проверка ограничения видимости
 клиентов. Результат: сотрудник видит только закреплённых за ним клиентов.
 """
-from engine.models import Client, db
+from datetime import date
+
+from engine.models import Client, Contract, Contractor, Document, db
 from tests.base import (EMAILS, Steps, create_scenario_app, login,
                         seed_users)
 
@@ -38,7 +40,25 @@ def run():
         db.session.flush()
         for name, _, _, _ in rows:
             ids[name] = Client.query.filter_by(name=name).first().id
+
+        # Общий контрагент: договоры и документы по «своему» и «чужому» клиенту
+        contractor = Contractor(
+            full_name='ООО «Общий контрагент-Т»', inn='7706666699',
+            external_ref='cccccccc-7777-7777-7777-777777777777')
+        db.session.add(contractor)
+        db.session.flush()
+        db.session.add_all([
+            Contract(number='ДОГ-СВОЙ', signed_date=date.today(),
+                     client_id=ids[MY_ACTIVE], contractor_id=contractor.id),
+            Contract(number='ДОГ-ЧУЖОЙ', signed_date=date.today(),
+                     client_id=ids[OTHER_EMP], contractor_id=contractor.id),
+            Document(doc_type='СчетНаОплату', number='ДОК-СВОЙ',
+                     client_id=ids[MY_ACTIVE], contractor_id=contractor.id),
+            Document(doc_type='СчетНаОплату', number='ДОК-ЧУЖОЙ',
+                     client_id=ids[OTHER_EMP], contractor_id=contractor.id),
+        ])
         db.session.commit()
+        contractor_id = contractor.id
 
     # --- Шаг 1. Вход под учётной записью сотрудника ------------------------
     web = app.test_client()
@@ -87,7 +107,18 @@ def run():
                 'чужой клиент не найден' if OTHER_EMP not in html
                 else 'чужой клиент найден поиском')
 
-    # --- Шаг 6. Руководитель видит всех клиентов --------------------------------
+    # --- Шаг 6. В карточке контрагента — только данные своих клиентов ---------
+    html = web.get(f'/contractors/{contractor_id}').get_data(as_text=True)
+    own_visible = 'ДОГ-СВОЙ' in html and 'ДОК-СВОЙ' in html
+    other_hidden = 'ДОГ-ЧУЖОЙ' not in html and 'ДОК-ЧУЖОЙ' not in html
+    steps.check(own_visible and other_hidden,
+                'В карточке контрагента видны только данные своих клиентов',
+                'договор и документ своего клиента отображаются, данные '
+                'чужого клиента скрыты',
+                'свои данные видны, чужие скрыты'
+                if own_visible and other_hidden else 'видимость данных нарушена')
+
+    # --- Шаг 7. Руководитель видит всех клиентов --------------------------------
     boss = app.test_client()
     login(boss, EMAILS['admin'])
     html = boss.get('/clients').get_data(as_text=True)
@@ -97,6 +128,14 @@ def run():
                 'Руководитель по-прежнему видит всех клиентов',
                 'в реестре руководителя — все 4 клиента',
                 'все клиенты видны' if ok else 'часть клиентов не видна')
+    contractor_html = boss.get(f'/contractors/{contractor_id}').get_data(as_text=True)
+    steps.check(all(value in contractor_html
+                    for value in ('ДОГ-СВОЙ', 'ДОГ-ЧУЖОЙ',
+                                  'ДОК-СВОЙ', 'ДОК-ЧУЖОЙ')),
+                'Руководитель видит в карточке контрагента все договоры и документы',
+                'доступны данные по всем клиентам контрагента',
+                'все связанные данные видны'
+                if 'ДОГ-ЧУЖОЙ' in contractor_html else 'часть данных скрыта')
 
     conclusion = ('Сотрудник видит только закреплённых за ним клиентов.'
                   if steps.passed else 'Ограничение видимости нарушено — см. шаги.')

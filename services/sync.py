@@ -6,6 +6,8 @@
 
 Каждый клиент может иметь собственные реквизиты подключения к своей
 базе «1С:Бухгалтерия»; по ним загружается справочник Catalog_Договоры.
+Документы загружаются из «1С:Документооборот» по видам Document_*;
+поле «Вид документа» вычисляется из имени сущности.
 """
 import logging
 from datetime import date, datetime
@@ -13,8 +15,8 @@ from decimal import Decimal, InvalidOperation
 
 from engine.models import (Client, Contractor, Contract, Document,
                            OneCSetting, db)
-from services.odata_client import (ODataError, client_for_client,
-                                   client_for_settings)
+from services.odata_client import (DOCUMENT_ENTITIES, ODataError,
+                                   client_for_client, client_for_settings)
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +236,6 @@ def sync_contracts(client: Client) -> dict:
             contract.amount = _parse_amount(row.get('Сумма'))
             description = _clean(row.get('Description'))
             contract.description = description
-            contract.contractor_ref = contractor_ref or None
             contract.contractor_id = contractor.id if contractor else None
             stats[action] += 1
         except Exception as exc:  # защита от битых строк
@@ -260,22 +261,26 @@ def sync_all_contracts() -> dict:
 
 
 # --------------------------------------------------------------------- документы
-def sync_documents(settings=None, entity: str = 'Document_ВходящееПисьмо',
-                   days: int = 30) -> int:
-    """Загрузка входящих документов из «1С:Документооборот» (ФТ-2).
+def sync_documents(settings=None, entities=None, days: int = 30) -> int:
+    """Загрузка документов из «1С:Документооборот» (ФТ-2).
 
-    Обновляет таблицу Document: документы (тип, номер, дата, статус)
-    и привязка к клиенту по внешней ссылке клиента
-    (Ref_Key). Документы с нераспознанным контрагентом пропускаются.
+    Опрашивает перечень видов документов (по умолчанию все сущности
+    из DOCUMENT_ENTITIES) и сохраняет реквизиты: вид документа, номер,
+    дату, статус, клиента и контрагента. «Вид документа» вычисляется
+    из имени сущности 1С (без префикса Document_).
+
+    Контрагент может быть не указан — тогда contractor_id = NULL.
+    Документы с неизвестной организацией (клиентом) пропускаются.
     Возвращает количество обработанных записей.
     """
     setting = settings or OneCSetting.get()
     if not setting.odata_url:
         return 0
 
+    entity_list = list(entities) if entities else list(DOCUMENT_ENTITIES)
     api = client_for_settings(setting)
     try:
-        rows = api.get_documents(entity=entity, top=500)
+        rows = api.get_documents(entities=entity_list, top=500)
     finally:
         api.close()
 
@@ -292,22 +297,21 @@ def sync_documents(settings=None, entity: str = 'Document_ВходящееПис
         if client is None:
             continue
 
-        # Привязка документа к контрагенту по внешней ссылке контрагента
+        # Контрагент необязателен: пустое или неизвестное значение
+        # сохраняется как отсутствие контрагента.
         contractor_key = row.get('Контрагент') or ''
         contractor = (Contractor.query.filter_by(external_ref=contractor_key).first()
-                  if contractor_key else None)
-        if contractor is None:
-            continue
+                      if contractor_key else None)
 
         doc = Document.query.filter_by(external_ref=ref_key).first()
         if doc is None:
             doc = Document(external_ref=ref_key)
             db.session.add(doc)
         doc.client_id = client.id
-        doc.contractor_id = contractor.id
-        doc.doc_type = entity.replace('Document_', '')
-        doc.number = str(row.get('Number') or '')
-        doc.doc_date = _parse_date(row.get('Date'))
+        doc.contractor_id = contractor.id if contractor else None
+        doc.doc_type = str(row.get('ВидДокумента') or '')
+        doc.number = str(row.get('Номер') or row.get('Number') or '')
+        doc.doc_date = _parse_date(row.get('Дата') or row.get('Date'))
         doc.status = str(row.get('Статус') or '')
         db.session.commit()
         processed += 1

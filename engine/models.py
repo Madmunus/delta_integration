@@ -9,6 +9,32 @@ db = SQLAlchemy()
 
 
 # ----------------------------------------------------------------------------
+# Единственная настройка подключения к главной базе «1С:Предприятие»
+# ----------------------------------------------------------------------------
+class OneCSetting(db.Model):
+    """URL OData, пользователь и пароль главной базы 1С:Предприятие.
+
+    По этой настройке загружаются клиенты (Catalog_Организации) и
+    контрагенты (Catalog_Контрагенты).
+    """
+    __tablename__ = 'onec_settings'
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    odata_url = db.Column(db.String(512), nullable=False, default='')
+    username = db.Column(db.String(255), nullable=False, default='')
+    password = db.Column(db.String(512), nullable=False, default='')
+    last_sync_at = db.Column(db.DateTime)
+
+    @classmethod
+    def get(cls):
+        """Вернуть настройку; при первом обращении — новый объект в памяти."""
+        return db.session.get(cls, 1) or cls(id=1)
+
+    def __repr__(self):
+        return f'<OneCSetting {self.odata_url or "не настроено"}>'
+
+
+# ----------------------------------------------------------------------------
 # Пользователь (ФТ-7: ролевая модель admin / employee)
 # ----------------------------------------------------------------------------
 class User(UserMixin, db.Model):
@@ -42,55 +68,6 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.email} ({self.role})>'
-
-
-# ----------------------------------------------------------------------------
-# Единственная настройка подключения к главной базе «1С:Предприятие»
-# ----------------------------------------------------------------------------
-class OneCSetting(db.Model):
-    """URL OData, пользователь и пароль главной базы 1С:Предприятие.
-
-    По этой настройке загружаются клиенты (Catalog_Организации) и
-    контрагенты (Catalog_Контрагенты).
-    """
-    __tablename__ = 'onec_settings'
-
-    id = db.Column(db.Integer, primary_key=True, default=1)
-    odata_url = db.Column(db.String(512), nullable=False, default='')
-    username = db.Column(db.String(255), nullable=False, default='')
-    password = db.Column(db.String(512), nullable=False, default='')
-    last_sync_at = db.Column(db.DateTime)
-
-    @classmethod
-    def get(cls):
-        """Вернуть настройку; при первом обращении — новый объект в памяти."""
-        return db.session.get(cls, 1) or cls(id=1)
-
-    def __repr__(self):
-        return f'<OneCSetting {self.odata_url or "не настроено"}>'
-
-
-# ----------------------------------------------------------------------------
-# Контрагент (ФТ-1: справочник Catalog_Контрагенты)
-# ----------------------------------------------------------------------------
-class Contractor(db.Model):
-    __tablename__ = 'contractors'
-
-    id = db.Column(db.Integer, primary_key=True)
-    external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key в Catalog_Контрагенты
-    full_name = db.Column(db.String(512), nullable=False, default='')  # НаименованиеПолное
-    inn = db.Column(db.String(12), index=True)
-    kpp = db.Column(db.String(9))
-    description = db.Column(db.Text, nullable=False, default='')
-
-    contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
-
-    @property
-    def display_name(self) -> str:
-        return self.full_name or self.description or self.external_ref or '—'
-
-    def __repr__(self):
-        return f'<Contractor {self.full_name or self.external_ref}>'
 
 
 # ----------------------------------------------------------------------------
@@ -138,6 +115,29 @@ class Client(db.Model):
 
 
 # ----------------------------------------------------------------------------
+# Контрагент (ФТ-1: справочник Catalog_Контрагенты)
+# ----------------------------------------------------------------------------
+class Contractor(db.Model):
+    __tablename__ = 'contractors'
+
+    id = db.Column(db.Integer, primary_key=True)
+    external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key в Catalog_Контрагенты
+    full_name = db.Column(db.String(512), nullable=False, default='')  # НаименованиеПолное
+    inn = db.Column(db.String(12), index=True)
+    kpp = db.Column(db.String(9))
+    description = db.Column(db.Text, nullable=False, default='')
+
+    contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
+
+    @property
+    def display_name(self) -> str:
+        return self.full_name or self.description or self.external_ref or '—'
+
+    def __repr__(self):
+        return f'<Contractor {self.full_name or self.external_ref}>'
+
+
+# ----------------------------------------------------------------------------
 # Договор (ФТ-5: справочник Catalog_Договоры)
 # ----------------------------------------------------------------------------
 class Contract(db.Model):
@@ -148,7 +148,6 @@ class Contract(db.Model):
     signed_date = db.Column(db.Date, nullable=False, default=date.today)  # Дата
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
     contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
-    contractor_ref = db.Column(db.String(64), index=True)      # Контрагент
     external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key
     description = db.Column(db.Text, nullable=False, default='')  # Description из 1С
     amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Сумма
@@ -169,7 +168,7 @@ class Contract(db.Model):
     def contractor_name(self) -> str:
         if self.contractor is not None:
             return self.contractor.display_name
-        return self.contractor_ref or '—'
+        return '—'
 
     def __repr__(self):
         return f'<Contract №{self.number}>'
@@ -292,7 +291,7 @@ class Document(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
-    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), nullable=False, index=True)
+    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
     doc_type = db.Column(db.String(255), nullable=False, default='')
     number = db.Column(db.String(64), nullable=False, default='')
     doc_date = db.Column(db.Date)

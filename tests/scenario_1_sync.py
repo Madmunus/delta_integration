@@ -21,6 +21,7 @@ ALPHA_KEY = '11111111-1111-1111-1111-111111111111'
 BETA_KEY = '22222222-2222-2222-2222-222222222222'
 GAMMA_KEY = '33333333-3333-3333-3333-333333333333'
 DELETED_KEY = '44444444-4444-4444-4444-444444444444'
+ALPHA_CONTRACTOR_KEY = 'aaaaaaaa-1111-1111-1111-111111111111'
 
 # Catalog_Организации: Ref_Key, Наименование, ИНН, DeletionMark.
 ORGANIZATIONS = [
@@ -134,15 +135,125 @@ def run():
                 'таблица перенесена' if 'Наименование полное' not in bases_html
                 else 'таблица всё ещё на странице «1С База»')
 
-    # --- Шаг 6. Повторный запуск не создаёт дублей --------------------
+    # --- Шаг 5.1. Поиск по таблице контрагентов ------------------------
+    filtered_html = web.get('/contractors',
+                            query_string={'q': 'Альфа'}).get_data(as_text=True)
+    filter_ok = ('Альфа-Тест' in filtered_html
+                 and 'Бета-Тест' not in filtered_html
+                 and 'Поиск по таблице' in contractors_html
+                 and 'fa-xmark' in contractors_html
+                 and 'fa-magnifying-glass' in contractors_html
+                 and 'fa-arrow-rotate-left' in contractors_html
+                 and 'requestSubmit' not in contractors_html)
+    steps.check(filter_ok,
+                'В реестре контрагентов работает поиск по таблице',
+                'поле «Поиск по таблице» с кнопками применения, очистки и '
+                'сброса; фильтр по наименованию, ИНН, КПП и описанию',
+                'найдена только «Альфа-Тест»' if filter_ok
+                else 'фильтр не работает')
+
+    # --- Шаг 6. Карточка контрагента ----------------------------------
     with app.app_context():
+        contractor_id = Contractor.query.filter_by(inn='7701111111').first().id
+    contractor_html = web.get(f'/contractors/{contractor_id}').get_data(as_text=True)
+    requisites = ('Ключ 1С', 'Наименование полное', 'ИНН', 'КПП', 'Описание')
+    positions = [contractor_html.find(f'>{label}<') for label in requisites]
+    steps.check(
+        all(value in contractor_html for value in (
+            'ООО «Альфа-Тест»', '7701111111', '770101001',
+            'Основной контрагент', ALPHA_CONTRACTOR_KEY))
+        and all(pos >= 0 for pos in positions)
+        and positions == sorted(positions),
+        'Карточка контрагента содержит все реквизиты',
+        'Ключ 1С, наименование полное, ИНН, КПП, описание — в заданном порядке',
+        'реквизиты отображаются в нужном порядке'
+        if positions == sorted(positions) else f'порядок нарушен: {positions}')
+    tabs_ok = all(f'data-bs-target="#tab-{tab}"' in contractor_html
+                  for tab in ('requisites', 'contracts', 'docs'))
+    steps.check(tabs_ok and '<p class="text-muted mb-0">' not in contractor_html,
+                'Разделы карточки контрагента оформлены вкладками',
+                'вкладки «Реквизиты», «Договоры», «Документы»; строки под '
+                'заголовком нет',
+                'вкладки и заголовок оформлены корректно'
+                if tabs_ok else 'вкладки отсутствуют')
+    steps.check(f'href="/contractors/{contractor_id}"' in contractors_html,
+                'Из списка контрагентов открывается карточка',
+                'наименование в списке — ссылка на карточку контрагента',
+                'ссылка на карточку есть' if f'href="/contractors/{contractor_id}"'
+                in contractors_html else 'ссылка на карточку отсутствует')
+
+    # --- Шаг 6.1. Пагинация реестра контрагентов -----------------------
+    with app.app_context():
+        for i in range(1, 24):
+            db.session.add(Contractor(
+                external_ref=f'ffffffff-0000-0000-0000-{i:012d}',
+                full_name=f'ООО «Пагинация-{i:02d}»',
+                inn=f'7799{i:08d}', kpp=f'7799{i:05d}',
+                description='Демо-контрагент для проверки пагинации'))
+        db.session.commit()
+        contractors_count = Contractor.query.count()
+
+    def _body_rows(html):
+        return html.split('<tbody>', 1)[1].split('</tbody>', 1)[0].count('<tr>')
+
+    page1 = web.get('/contractors').get_data(as_text=True)
+    page2 = web.get('/contractors',
+                    query_string={'page': 2}).get_data(as_text=True)
+    rows1, rows2 = _body_rows(page1), _body_rows(page2)
+    steps.check(contractors_count == 25 and rows1 == 20 and rows2 == 5
+                and 'page=2' in page1,
+                'В реестре контрагентов работает пагинация по 20 записей',
+                '25 контрагентов: 20 на первой странице и 5 на второй',
+                f'всего {contractors_count}, на странице 1 — {rows1}, '
+                f'на странице 2 — {rows2}')
+
+    # --- Шаг 7. Нередактируемые поля в карточке клиента ----------------
+    edit_html = web.get(f'/clients/{alpha.id}/edit').get_data(as_text=True)
+    steps.check(
+        all(value in edit_html for value in (
+            alpha.name, alpha.inn, alpha.kpp or '—', ALPHA_KEY,
+            'Данные из «1С:Предприятие»', 'Редактируемые поля')),
+        'В карточке редактирования показаны нередактируемые поля',
+        'наименование, ИНН, КПП, Ref_Key и статус доступны только для чтения',
+        'информационные поля отображаются'
+        if ALPHA_KEY in edit_html else 'информационные поля отсутствуют')
+    steps.check('badge text-bg-info' not in html,
+                'На странице списка клиентов нет badge «1С»',
+                'бейдж источника удалён из реестра клиентов',
+                'badge отсутствует' if 'badge text-bg-info' not in html
+                else 'badge всё ещё отображается')
+
+    # --- Шаг 8. Карточка клиента ---------------------------------------
+    card_html = web.get(f'/clients/{alpha.id}').get_data(as_text=True)
+    labels = ('Ключ 1С', 'Полное наименование', 'ИНН', 'КПП',
+              'URL OData (1С:Бухгалтерия)', 'Пользователь', 'Пароль', 'Заметки')
+    positions = [card_html.find(f'>{label}<') for label in labels]
+    steps.check(all(pos >= 0 for pos in positions)
+                and positions == sorted(positions),
+                'В карточке клиента реквизиты идут в заданном порядке',
+                'Ключ 1С, наименование, ИНН, КПП, URL OData, пользователь, '
+                'пароль, заметки',
+                'порядок реквизитов соблюдён' if positions == sorted(positions)
+                else f'порядок нарушен: {positions}')
+    steps.check('>1С</span>' not in card_html
+                and 'ответственный:' not in card_html
+                and 'badge text-bg-info' in card_html,
+                'В заголовке карточки нет badge «1С» и подписи ответственного',
+                'статус и ответственный отображаются в заголовке без подписи',
+                'заголовок карточки оформлен корректно'
+                if 'ответственный:' not in card_html
+                else 'подпись ответственного всё ещё отображается')
+
+    # --- Шаг 9. Повторный запуск не создаёт дублей --------------------
+    with app.app_context():
+        contractors_before = Contractor.query.count()
         with fake_1c(organizations=ORGANIZATIONS, contractors=CONTRACTORS):
             stats = sync_clients()
         total_after = Client.query.count()
         contractors_after = Contractor.query.count()
     steps.check(stats['created'] == 0 and stats['contractors_created'] == 0
                 and total_after == total
-                and contractors_after == contractors_total,
+                and contractors_after == contractors_before,
                 'Повторный запуск не дублирует записи',
                 'новых клиентов и контрагентов 0, количество записей не изменилось',
                 f"создано клиентов {stats['created']}, "

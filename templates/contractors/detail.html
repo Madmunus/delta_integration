@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}{{ contractor.display_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">{{ contractor.display_name }}</h1>
+  </div>
+</div>
+
+<ul class="nav nav-tabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
+    data-bs-target="#tab-requisites" type="button">Реквизиты</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+    data-bs-target="#tab-contracts" type="button">Договоры ({{ contracts|length }})</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
+    data-bs-target="#tab-docs" type="button">Документы ({{ documents|length }})</button></li>
+</ul>
+
+<div class="tab-content border border-top-0 p-3 bg-body rounded-bottom">
+  <div class="tab-pane fade show active" id="tab-requisites">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">Ключ 1С</dt>
+      <dd class="col-sm-9"><code>{{ contractor.external_ref or '—' }}</code></dd>
+      <dt class="col-sm-3">Наименование полное</dt>
+      <dd class="col-sm-9">{{ contractor.full_name or '—' }}</dd>
+      <dt class="col-sm-3">ИНН</dt>
+      <dd class="col-sm-9">{{ contractor.inn or '—' }}</dd>
+      <dt class="col-sm-3">КПП</dt>
+      <dd class="col-sm-9">{{ contractor.kpp or '—' }}</dd>
+      <dt class="col-sm-3">Описание</dt>
+      <dd class="col-sm-9" style="white-space: pre-wrap;">{{ contractor.description or '—' }}</dd>
+    </dl>
+  </div>
+
+  <div class="tab-pane fade" id="tab-contracts">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>№</th><th>Дата</th><th>Клиент</th>
+        <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th></tr></thead>
+      <tbody>
+      {% for c in contracts %}
+        <tr>
+          <td><a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
+          <td class="text-nowrap">{{ c.signed_date|dt }}</td>
+          <td>
+            {% if c.client %}
+              <a href="{{ url_for('clients.detail', client_id=c.client.id) }}">{{ c.client.name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-end">{{ c.amount|money }}</td>
+          <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
+          <td><span class="badge
+            {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
+            {{ c.status_1c or c.status_label }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-muted">Договоров с этим контрагентом нет</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tab-pane fade" id="tab-docs">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
+        <th>Клиент</th><th>Статус</th></tr></thead>
+      <tbody>
+      {% for d in documents %}
+        <tr>
+          <td>{{ d.doc_type }}</td>
+          <td>{{ d.number }}</td>
+          <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+          <td>
+            {% if d.client %}
+              <a href="{{ url_for('clients.detail', client_id=d.client.id) }}">{{ d.client.name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td>{{ d.status or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Документов с этим контрагентом нет</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

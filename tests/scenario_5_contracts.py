@@ -4,7 +4,7 @@
 загружается справочник Catalog_Договоры. Проверяются реквизиты договора,
 привязка к контрагенту, статусы и отсутствие дублирования.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from engine.models import Client, Contract, Contractor, db
@@ -118,6 +118,12 @@ def run():
                 'на вкладке «Договоры» — все три договора',
                 'договоры отображаются' if 'ДГ-001' in html
                 else 'договоры не отображаются')
+    steps.check(f'href="/contractors/{contractor_id}"' in html,
+                'В столбце «Контрагент» есть ссылка на карточку контрагента',
+                'наименование контрагента в договоре ведёт в его карточку',
+                'ссылка на контрагента присутствует'
+                if f'href="/contractors/{contractor_id}"' in html
+                else 'ссылка на контрагента отсутствует')
 
     # --- Шаг 4. Повторная загрузка не создаёт дублей -------------------
     with app.app_context():
@@ -144,6 +150,54 @@ def run():
                 'Клиент без подключения к 1С:Бухгалтерия обрабатывается корректно',
                 'загрузка не выполняется, выводится предупреждение',
                 f"создано {stats['created']}, ошибок {len(stats['errors'])}")
+
+    # --- Шаг 6. Фильтр и пагинация реестра договоров --------------------
+    with app.app_context():
+        for i in range(1, 23):
+            db.session.add(Contract(
+                number=f'ПГ-{i:03d}', client_id=client_id,
+                signed_date=date(2024, 1, 1) + timedelta(days=i),
+                status='active', status_1c='Действует',
+                amount=Decimal('1000.00'),
+                description='Договор для проверки пагинации'))
+        db.session.commit()
+        total = Contract.query.count()
+
+    def _body_rows(html):
+        return html.split('<tbody>', 1)[1].split('</tbody>', 1)[0].count('<tr>')
+
+    page1 = web.get('/contracts').get_data(as_text=True)
+    page2 = web.get('/contracts',
+                    query_string={'page': 2}).get_data(as_text=True)
+    rows1, rows2 = _body_rows(page1), _body_rows(page2)
+    steps.check(total == 25 and rows1 == 20 and rows2 == 5
+                and 'page=2' in page1,
+                'В реестре договоров работает пагинация по 20 записей',
+                '25 договоров: 20 на первой странице и 5 на второй',
+                f'всего {total}, на странице 1 — {rows1}, '
+                f'на странице 2 — {rows2}')
+
+    search_html = web.get('/contracts',
+                          query_string={'q': 'Бухгалтерское'}).get_data(as_text=True)
+    status_html = web.get('/contracts',
+                          query_string={'status': 'closed'}).get_data(as_text=True)
+    steps.check('ДГ-001' in search_html
+                and 'ДГ-002' not in search_html
+                and 'ДГ-003' not in search_html,
+                'В реестре договоров работает поиск по всем полям',
+                'поиск «Бухгалтерское» находит только договор ДГ-001',
+                'найден только ДГ-001' if 'ДГ-001' in search_html
+                and 'ДГ-002' not in search_html else 'фильтр по полям не работает')
+    steps.check('ДГ-002' in status_html
+                and 'ДГ-001' not in status_html
+                and 'ДГ-003' not in status_html
+                and 'name="status"' in page1 and '<select' in page1,
+                'Фильтр по статусу договора оформлен выпадающим списком',
+                'select «Все статусы / Проект / Действующие / Завершённые»; '
+                'статус «Завершённые» оставляет только ДГ-002',
+                'select и фильтр по статусу работают'
+                if 'ДГ-002' in status_html and 'ДГ-001' not in status_html
+                else 'фильтр по статусу не работает')
 
     conclusion = ('Договоры загружаются из «1С:Бухгалтерия» по реквизитам '
                   'клиента, дублирование отсутствует.'

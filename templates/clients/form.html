@@ -1,11 +1,36 @@
 {% extends 'base.html' %}
 {% block title %}Редактирование клиента{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">Редактирование клиента: {{ client.name }}</h1>
+<h1 class="h4 mb-4">{{ client.name }}</h1>
+
+<div class="card mb-3" style="max-width: 760px;">
+  <div class="card-body">
+    <h2 class="h6 mb-3">Реквизиты</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-4">Ключ 1С</dt>
+      <dd class="col-sm-8"><code>{{ client.external_ref or '—' }}</code></dd>
+      <dt class="col-sm-4">Наименование</dt>
+      <dd class="col-sm-8">{{ client.name }}</dd>
+      <dt class="col-sm-4">ИНН</dt>
+      <dd class="col-sm-8">{{ client.inn or '—' }}</dd>
+      <dt class="col-sm-4">КПП</dt>
+      <dd class="col-sm-8">{{ client.kpp or '—' }}</dd>
+      <dt class="col-sm-4">Статус</dt>
+      <dd class="col-sm-8">
+        {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
+        {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+      </dd>
+      <dt class="col-sm-4">Дата добавления</dt>
+      <dd class="col-sm-8">{{ client.date_added|dt }}</dd>
+    </dl>
+  </div>
+</div>
+
 <div class="card" style="max-width: 760px;">
   <div class="card-body">
     <form method="post" novalidate>
       {{ form.hidden_tag() }}
+      <h2 class="h6 mb-3">Редактируемые поля</h2>
       <div class="row g-3">
         <div class="col-md-6">
           {{ form.responsible_id.label(class='form-label') }}
@@ -18,12 +43,7 @@
       </div>
 
       <hr class="my-4">
-      <h2 class="h6 mb-1">Подключение к «1С:Бухгалтерия» клиента</h2>
-      <p class="text-muted small mb-3">
-        По этим реквизитам загружается справочник
-        <code>Catalog_Договоры</code> (номер, дата, срок действия, статус,
-        сумма и контрагент).
-      </p>
+      <h2 class="h6 mb-3">Подключение к «1С:Бухгалтерия» клиента</h2>
       <div class="row g-3">
         <div class="col-12">
           {{ form.odata_url.label(class='form-label') }}

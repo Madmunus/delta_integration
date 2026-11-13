@@ -107,13 +107,13 @@ def list_clients():
         order_by = (status_order, Client.name.asc())
 
     page = request.args.get('page', 1, type=int)
-    total = q.count()
     pagination = q.order_by(*order_by).paginate(
         page=page, per_page=20, error_out=False)
     responsibles = (User.query.order_by(User.fio).all()
                     if current_user.is_admin else [])
     return render_template('clients/list.html',
-                           pagination=pagination, total=total, search=search,
+                           pagination=pagination,
+                           search=search,
                            status=status, responsibles=responsibles,
                            responsible=responsible,
                            date_from=date_from, date_to=date_to,

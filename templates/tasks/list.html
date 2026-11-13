@@ -64,14 +64,14 @@
               action="{{ url_for('tasks.change_status', task_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="status" value="done">
-          <button class="btn btn-sm btn-outline-success" title="Отметить выполненной">✓</button>
+          <button class="btn btn-sm btn-outline-success" title="Отметить выполненной"><i class="fa-solid fa-check"></i></button>
         </form>
         {% endif %}
         <form class="d-inline" method="post"
               action="{{ url_for('tasks.delete_task', task_id=t.id) }}"
               onsubmit="return confirm('Удалить задачу?')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-outline-danger" title="Удалить">✕</button>
+          <button class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fa-solid fa-xmark"></i></button>
         </form>
       </td>
     </tr>

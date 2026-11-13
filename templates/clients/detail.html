@@ -3,14 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
-    <h1 class="h4 mb-1">{{ client.name }}
-      {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
-      {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
-      {% if client.external_ref %}<span class="badge text-bg-info">1С</span>{% endif %}
-    </h1>
-    <p class="text-muted mb-0">ИНН {{ client.inn or '—' }} · КПП {{ client.kpp or '—' }} ·
-      добавлен {{ client.date_added|dt }} ·
-      ответственный: {{ client.responsible.fio if client.responsible else 'не назначен' }}</p>
+    <h1 class="h4 mb-1">{{ client.name }}</h1>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-outline-primary btn-sm"
@@ -39,19 +32,30 @@
 <div class="tab-content border border-top-0 p-3 bg-body rounded-bottom">
   <div class="tab-pane fade show active" id="tab-requisites">
     <dl class="row mb-0">
-      <dt class="col-sm-3">Полное наименование</dt><dd class="col-sm-9">{{ client.name }}</dd>
+      <dt class="col-sm-3">Ключ 1С</dt>
+      <dd class="col-sm-9"><code>{{ client.external_ref or '—' }}</code></dd>
+      <dt class="col-sm-3">Наименование</dt><dd class="col-sm-9">{{ client.name }}</dd>
       <dt class="col-sm-3">ИНН</dt><dd class="col-sm-9">{{ client.inn or '—' }}</dd>
       <dt class="col-sm-3">КПП</dt><dd class="col-sm-9">{{ client.kpp or '—' }}</dd>
-      <dt class="col-sm-3">Ref_Key</dt>
-      <dd class="col-sm-9"><code>{{ client.external_ref or '—' }}</code></dd>
+      <dt class="col-sm-3">Статус</dt>
+      <dd class="col-sm-9">
+        {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
+        {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+      </dd>
+      <dt class="col-sm-3">Дата добавления</dt>
+      <dd class="col-sm-9">{{ client.date_added|dt }}</dd>
+      <dt class="col-sm-3">Ответственный</dt>
+      <dd class="col-sm-9">
+        <span class="badge text-bg-info">{{ client.responsible.fio if client.responsible else 'не назначен' }}</span>
+      </dd>
+      <dt class="col-sm-3">Заметки</dt>
+      <dd class="col-sm-9" style="white-space: pre-wrap;">{{ client.notes or '—' }}</dd>
       <dt class="col-sm-3">URL OData (1С:Бухгалтерия)</dt>
       <dd class="col-sm-9">{{ client.odata_url or 'не настроено' }}</dd>
       <dt class="col-sm-3">Пользователь</dt>
       <dd class="col-sm-9">{{ client.odata_username or '—' }}</dd>
       <dt class="col-sm-3">Пароль</dt>
       <dd class="col-sm-9">{{ '••••••••' if client.odata_password else '—' }}</dd>
-      <dt class="col-sm-3">Заметки</dt>
-      <dd class="col-sm-9" style="white-space: pre-wrap;">{{ client.notes or '—' }}</dd>
     </dl>
   </div>
 
@@ -64,7 +68,11 @@
         <tr>
           <td><a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
           <td>{{ c.signed_date|dt }}</td>
-          <td>{{ c.contractor_name }}</td>
+          <td>
+            {% if c.contractor %}
+              <a href="{{ url_for('contractors.detail', contractor_id=c.contractor.id) }}">{{ c.contractor_name }}</a>
+            {% else %}—{% endif %}
+          </td>
           <td class="text-end">{{ c.amount|money }}</td>
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
           <td><span class="badge
@@ -100,8 +108,8 @@
 
   <div class="tab-pane fade" id="tab-docs">
     <table class="table table-sm align-middle">
-      <thead><tr><th>Тип</th><th>Номер</th><th>Дата</th>
-        <th class="text-end">Сумма</th><th>Статус</th><th>Ссылка</th></tr></thead>
+      <thead><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
+        <th>Статус</th><th>Ссылка</th></tr></thead>
       <tbody>
       {% for d in documents %}
         <tr>
@@ -113,7 +121,7 @@
               rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="text-muted">Документы из «1С:Документооборот»
+        <tr><td colspan="5" class="text-muted">Документы из «1С:Документооборот»
           появятся после настройки интеграции</td></tr>
       {% endfor %}
       </tbody>

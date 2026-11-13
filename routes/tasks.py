@@ -63,7 +63,14 @@ def edit_task(task_id=None):
     form.assignee_id.choices.insert(0, (0, '— не назначен —'))
 
     if request.method == 'GET':
-        form.client_id.data = task.client_id or 0
+        client_param = request.args.get('client', type=int)
+        if task_id:
+            form.client_id.data = task.client_id or 0
+        elif client_param and any(cid == client_param
+                                  for cid, _ in form.client_id.choices):
+            form.client_id.data = client_param
+        else:
+            form.client_id.data = 0
         form.assignee_id.data = task.assignee_id or 0
 
     if form.validate_on_submit():

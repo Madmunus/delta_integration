@@ -4,6 +4,7 @@
 проверка отображения в виджете «Мои задачи». Результат: задача
 создаётся, статусы изменяются, виджет обновляется.
 """
+import re
 from datetime import date, timedelta
 
 from engine.models import Task, db
@@ -114,6 +115,16 @@ def run():
                 'выполненная задача исчезла из виджета «Мои задачи»',
                 'виджет обновился' if not in_widget
                 else 'выполненная задача всё ещё в виджете')
+
+    # --- Шаг 8. Переход к созданию задачи из карточки клиента --------------
+    card_html = web.get(f'/clients/{client_id}').get_data(as_text=True)
+    form_html = web.get(f'/tasks/add?client={client_id}').get_data(as_text=True)
+    selected = (re.search(rf'<option[^>]*selected[^>]*value="{client_id}"', form_html)
+                or re.search(rf'<option[^>]*value="{client_id}"[^>]*selected', form_html))
+    steps.check(f'/tasks/add?client={client_id}' in card_html and selected is not None,
+                'Из карточки клиента открывается задача с выбранным клиентом',
+                'кнопка «+ Задача» ведёт на создание задачи, клиент подставлен',
+                'клиент выбран в форме задачи' if selected else 'клиент не выбран')
 
     conclusion = ('Задача создаётся, статусы изменяются, виджет «Мои задачи» '
                   'обновляется.' if steps.passed

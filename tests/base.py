@@ -83,7 +83,8 @@ def fake_1c(organizations=None, contractors=None, contracts=None,
     organizations — строки Catalog_Организации (клиенты реестра, ФТ-1);
     contractors — строки Catalog_Контрагенты (справочник контрагентов);
     contracts — строки Catalog_Договоры (договоры клиента, ФТ-5);
-    documents — строки Document_* из «1С:Документооборот» (ФТ-2).
+    documents — строки Document_* из «1С:Документооборот» (ФТ-2)
+        или словарь {имя сущности: строки} для разных видов документов.
     """
     organizations = organizations or []
     contractors = contractors or []
@@ -98,6 +99,9 @@ def fake_1c(organizations=None, contractors=None, contracts=None,
         if 'Catalog_Договоры' in url:
             return FakeResponse({'value': contracts})
         if 'Document_' in url:
+            if isinstance(documents, dict):
+                entity = url.rsplit('/', 1)[-1]
+                return FakeResponse({'value': documents.get(entity, [])})
             return FakeResponse({'value': documents})
         return FakeResponse({'value': []})
 

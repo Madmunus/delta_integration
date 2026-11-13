@@ -3,9 +3,29 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
-    <h1 class="h4 mb-1">Контрагенты <span class="text-muted">({{ contractors_total }})</span></h1>
+    <h1 class="h4 mb-1">Контрагенты <span class="text-muted">({{ pagination.total }})</span></h1>
   </div>
 </div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-12 col-md-4 col-lg-3">
+    <div class="input-group">
+      <input class="form-control" name="q" value="{{ search }}"
+             placeholder="Поиск по таблице"
+             title="Поиск по наименованию, ИНН, КПП и описанию">
+      <button class="btn btn-outline-secondary px-2" type="button"
+              title="Очистить поиск" aria-label="Очистить поиск"
+              onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+  </div>
+  <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
+    <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+            aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
+    <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+       aria-label="Сбросить фильтр"
+       href="{{ url_for('contractors.list_contractors') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
+  </div>
+</form>
 
 <div class="table-responsive">
 <table class="table table-hover align-middle">
@@ -18,19 +38,33 @@
     </tr>
   </thead>
   <tbody>
-  {% for c in contractors %}
+  {% for c in pagination.items %}
     <tr>
-      <td>{{ c.full_name or '—' }}</td>
+      <td><a href="{{ url_for('contractors.detail', contractor_id=c.id) }}">{{ c.full_name or '—' }}</a></td>
       <td class="text-nowrap">{{ c.inn or '—' }}</td>
       <td>{{ c.kpp or '—' }}</td>
       <td>{{ c.description|truncate(80) if c.description else '—' }}</td>
     </tr>
   {% else %}
     <tr><td colspan="4" class="text-muted">
-      Контрагенты появятся после синхронизации с базой 1С:Предприятие
+      {% if search %}Контрагенты не найдены{% else %}Контрагенты появятся после синхронизации с базой 1С:Предприятие{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+
+{% if pagination.pages > 1 %}
+<nav>
+  <ul class="pagination">
+    {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+      {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+          <a class="page-link" href="{{ url_for('contractors.list_contractors', page=p, q=search) }}">{{ p }}</a>
+        </li>
+      {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
 {% endblock %}
