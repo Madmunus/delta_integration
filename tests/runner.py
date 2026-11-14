@@ -12,13 +12,13 @@ from datetime import datetime
 
 # (идентификатор, модуль сценария) — порядок отображения на странице
 SCENARIOS = [
-    ('scenario_1', 'tests.scenario_1_sync'),
-    ('scenario_2', 'tests.scenario_2_documents'),
-    ('scenario_3', 'tests.scenario_3_tasks'),
-    ('scenario_4', 'tests.scenario_4_deadlines'),
-    ('scenario_5', 'tests.scenario_5_contracts'),
-    ('scenario_6', 'tests.scenario_6_reports'),
-    ('scenario_7', 'tests.scenario_7_access'),
+    ('scenario_1', 'tests.scenario_1_access'),
+    ('scenario_2', 'tests.scenario_2_sync'),
+    ('scenario_3', 'tests.scenario_3_contracts'),
+    ('scenario_4', 'tests.scenario_4_documents'),
+    ('scenario_5', 'tests.scenario_5_tasks'),
+    ('scenario_6', 'tests.scenario_6_deadlines'),
+    ('scenario_7', 'tests.scenario_7_reports'),
 ]
 
 

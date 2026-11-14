@@ -4,8 +4,9 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
 from flask_login import current_user, login_required
 
 from engine.forms import OneCSettingForm
-from engine.models import Client, Contractor, OneCSetting, db
-from services.sync import sync_all_contracts, sync_clients
+from engine.models import Client, Contractor, Document, OneCSetting, db
+from engine.odata_client import ODataError
+from engine.sync import sync_all_contracts, sync_clients, sync_documents
 
 bp = Blueprint('bases', __name__)
 
@@ -41,6 +42,7 @@ def settings():
         setting=setting,
         contractors_total=Contractor.query.count(),
         clients_total=Client.query.count(),
+        documents_total=Document.query.count(),
         clients_with_odata=Client.query.filter(Client.odata_url != '').count(),
     )
 
@@ -78,4 +80,22 @@ def run_contracts_sync():
             f"Договоры: обработано клиентов {stats['clients']}, "
             f"создано {stats['created']}, обновлено {stats['updated']}",
             'success')
+    return redirect(url_for('bases.settings'))
+
+
+@bp.route('/bases/sync-documents', methods=['POST'])
+@login_required
+def run_documents_sync():
+    """Ручная загрузка документов из «1С:Документооборот»."""
+    _admin_required()
+    try:
+        processed = sync_documents()
+    except ODataError as exc:
+        flash(f'Ошибка загрузки документов: {exc}', 'warning')
+    else:
+        if processed:
+            flash(f'Документы: обработано {processed} записей', 'success')
+        else:
+            flash('Документы не загружены: проверьте настройку подключения к 1С',
+                  'warning')
     return redirect(url_for('bases.settings'))

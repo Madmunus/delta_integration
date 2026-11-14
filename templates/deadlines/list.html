@@ -18,7 +18,7 @@
 <table class="table table-sm align-middle mb-4">
   <thead class="table-light"><tr>
     <th>Форма</th><th>Периодичность</th><th>Категория</th>
-    <th>Ближайший срок</th><th>Готовность по клиентам</th>
+    <th>Ближайший срок</th><th>Готовность по клиентам</th><th>Создан</th>
   </tr></thead>
   <tbody>
   {% for u in upcoming %}
@@ -34,9 +34,10 @@
                style="width: {{ pct }}%">{{ pct|int }}%</div>
         </div>
       </td>
+      <td class="text-nowrap">{{ u.deadline.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="text-muted">Нет форм в справочнике</td></tr>
+    <tr><td colspan="6" class="text-muted">Нет форм в справочнике</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -46,6 +47,7 @@
   <thead class="table-light"><tr>
     <th>Код</th><th>Наименование</th><th>Периодичность</th>
     <th>День сдачи</th><th>Смещение</th><th>Категория</th><th>Вкл.</th>
+    <th>Создан</th>
   </tr></thead>
   <tbody>
   {% for d in deadlines %}
@@ -57,9 +59,10 @@
       <td>{{ d.period_offset }} мес.</td>
       <td>{{ d.taxpayer_category }}</td>
       <td>{{ 'да' if d.is_enabled else 'нет' }}</td>
+      <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="text-muted">Справочник пуст — добавьте виды отчётности
+    <tr><td colspan="8" class="text-muted">Справочник пуст — добавьте виды отчётности
       или запустите наполнение демо-данными</td></tr>
   {% endfor %}
   </tbody>

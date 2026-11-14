@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Документы{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Документы <span class="text-muted">({{ pagination.total }})</span></h1>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-12 col-md-5 col-lg-4">
+    <div class="input-group">
+      <input class="form-control" name="q" value="{{ search }}"
+             placeholder="Поиск по таблице"
+             title="Поиск по виду документа, номеру, клиенту, контрагенту и статусу">
+      <button class="btn btn-outline-secondary px-2" type="button"
+              title="Очистить поиск" aria-label="Очистить поиск"
+              onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+  </div>
+  <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
+    <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+            aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
+    <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+       aria-label="Сбросить фильтр"
+       href="{{ url_for('documents.list_documents') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
+  </div>
+</form>
+
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Вид документа</th><th>Номер</th><th>Дата</th><th>Клиент</th>
+    <th>Контрагент</th><th>Статус</th><th>Ссылка</th><th>Создан</th>
+  </tr></thead>
+  <tbody>
+  {% for d in documents %}
+    <tr>
+      <td>{{ d.doc_type }}</td>
+      <td>{{ d.number }}</td>
+      <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+      <td><a href="{{ url_for('clients.detail', client_id=d.client_id) }}">{{ d.client.name }}</a></td>
+      <td>
+        {% if d.contractor %}
+          <a href="{{ url_for('contractors.detail', contractor_id=d.contractor_id) }}">{{ d.contractor.display_name }}</a>
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ d.status or '—' }}</td>
+      <td>
+        {% if d.external_url %}
+          <a href="{{ d.external_url }}" target="_blank" rel="noopener noreferrer">открыть в 1С</a>
+        {% else %}—{% endif %}
+      </td>
+      <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="text-muted">
+      {% if search %}Документы не найдены{% else %}Документов нет{% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav>
+  <ul class="pagination">
+    {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+      {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+          <a class="page-link" href="{{ url_for('documents.list_documents', page=p, q=search) }}">{{ p }}</a>
+        </li>
+      {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

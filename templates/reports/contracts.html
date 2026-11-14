@@ -20,6 +20,7 @@
   <thead class="table-light"><tr>
     <th>№</th><th>Клиент</th><th>Дата</th>
     <th class="text-end">Стоимость, руб.</th><th>Действие</th><th>Статус</th>
+    <th>Создан</th>
   </tr></thead>
   <tbody>
   {% for c in contracts %}
@@ -32,9 +33,10 @@
       <td><span class="badge
         {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
         {{ c.status_label }}</span></td>
+      <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="text-muted">Договоров нет</td></tr>
+    <tr><td colspan="7" class="text-muted">Договоров нет</td></tr>
   {% endfor %}
   </tbody>
 </table>

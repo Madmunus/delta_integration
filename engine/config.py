@@ -20,6 +20,9 @@ class Config:
     ODATA_TIMEOUT = int(os.environ.get('DELTA_ODATA_TIMEOUT', '15'))
     # Период фоновой синхронизации справочника клиентов, сек
     SYNC_INTERVAL_SECONDS = int(os.environ.get('DELTA_SYNC_INTERVAL', '3600'))
+    # Период фоновой загрузки документов из «1С:Документооборот», сек
+    DOCUMENTS_SYNC_INTERVAL = int(
+        os.environ.get('DELTA_DOCUMENTS_INTERVAL', '3600'))
     # Период проверки сроков отчётности, сек
     DEADLINE_CHECK_INTERVAL = int(os.environ.get('DELTA_DEADLINE_INTERVAL', '3600'))
     # За сколько дней до срока создавать задачу

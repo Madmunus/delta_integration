@@ -40,7 +40,7 @@
         {% for c in recent_clients %}
           <li class="list-group-item d-flex justify-content-between">
             <a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a>
-            <span class="text-muted">{{ c.date_added|dt }}</span>
+            <span class="text-muted">{{ c.created_at|dtfull }}</span>
           </li>
         {% else %}
           <li class="list-group-item text-muted">Реестр пуст — добавьте клиента

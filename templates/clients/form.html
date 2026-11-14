@@ -20,8 +20,8 @@
         {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
         {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
       </dd>
-      <dt class="col-sm-4">Дата добавления</dt>
-      <dd class="col-sm-8">{{ client.date_added|dt }}</dd>
+      <dt class="col-sm-4">Дата создания</dt>
+      <dd class="col-sm-8">{{ client.created_at|dtfull }}</dd>
     </dl>
   </div>
 </div>

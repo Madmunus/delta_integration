@@ -1,5 +1,5 @@
 """Маршруты реестра клиентов и карточки клиента."""
-from datetime import datetime
+from datetime import datetime, time
 
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
@@ -8,13 +8,13 @@ from sqlalchemy import case, or_
 
 from engine.forms import ClientForm
 from engine.models import Client, Contract, Document, Task, User, db
-from services.sync import sync_contracts
+from engine.sync import sync_contracts
 
 bp = Blueprint('clients', __name__)
 
 
 def visible_clients_query():
-    """ФТ-7: руководитель видит всех, сотрудник — только своих клиентов."""
+    """ФТ-1: руководитель видит всех, сотрудник — только своих клиентов."""
     q = Client.query
     if not current_user.is_admin:
         q = q.filter_by(responsible_id=current_user.id)
@@ -41,7 +41,7 @@ SORTABLE_COLUMNS = {
     'kpp': Client.kpp,
     'status': Client.status,
     'responsible': User.fio,
-    'date_added': Client.date_added,
+    'created_at': Client.created_at,
 }
 
 
@@ -50,7 +50,7 @@ SORTABLE_COLUMNS = {
 def list_clients():
     q = visible_clients_query()
 
-    # Поиск и фильтрация (ФТ-1)
+    # Поиск и фильтрация (ФТ-2)
     search = (request.args.get('q') or '').strip()
     status = request.args.get('status') or ''
     responsible = request.args.get('responsible') or ''
@@ -64,7 +64,7 @@ def list_clients():
                          Client.notes.ilike(like)))
     if status in ('active', 'archived'):
         q = q.filter_by(status=status)
-    # Фильтр по ответственному — только для руководителей (ФТ-7)
+    # Фильтр по ответственному — только для руководителей (ФТ-1)
     if responsible:
         if not current_user.is_admin:
             abort(403)
@@ -72,16 +72,16 @@ def list_clients():
             q = q.filter(Client.responsible_id.is_(None))
         elif responsible.isdigit():
             q = q.filter(Client.responsible_id == int(responsible))
-    # Поиск по дате добавления (диапазон «с — по»)
+    # Поиск по дате создания (диапазон «с — по»)
     d_from = _parse_query_date(date_from)
     d_to = _parse_query_date(date_to)
     # Поля дат текстовые: показываем в привычном формате дд.мм.гггг
     date_from = d_from.strftime('%d.%m.%Y') if d_from else ''
     date_to = d_to.strftime('%d.%m.%Y') if d_to else ''
     if d_from:
-        q = q.filter(Client.date_added >= d_from)
+        q = q.filter(Client.created_at >= datetime.combine(d_from, time.min))
     if d_to:
-        q = q.filter(Client.date_added <= d_to)
+        q = q.filter(Client.created_at <= datetime.combine(d_to, time.max))
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
     # и отключена (сортировка по умолчанию). По умолчанию: сначала активные,
@@ -124,7 +124,7 @@ def list_clients():
 @login_required
 def detail(client_id):
     client = Client.query.get_or_404(client_id)
-    # ФТ-7: сотрудник не видит чужих клиентов
+    # ФТ-1: сотрудник не видит чужих клиентов
     if not current_user.is_admin and client.responsible_id != current_user.id:
         abort(403)
     contracts = client.contracts.order_by(Contract.signed_date.desc()).all()

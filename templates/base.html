@@ -26,6 +26,9 @@
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'contracts' }}"
           {% if active_nav == 'contracts' %}aria-current="page"{% endif %}
           href="{{ url_for('contracts.list_contracts') }}">Договоры</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'documents' }}"
+          {% if active_nav == 'documents' %}aria-current="page"{% endif %}
+          href="{{ url_for('documents.list_documents') }}">Документы</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'tasks' }}"
           {% if active_nav == 'tasks' %}aria-current="page"{% endif %}
           href="{{ url_for('tasks.list_tasks') }}">Задачи</a></li>
@@ -36,15 +39,19 @@
         <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'reports' }}"
           {% if active_nav == 'reports' %}aria-current="page"{% endif %}
           href="{{ url_for('reports.index') }}">Отчёты</a></li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'bases' }}"
-          {% if active_nav == 'bases' %}aria-current="page"{% endif %}
-          href="{{ url_for('bases.settings') }}">1С База</a></li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'users' }}"
-          {% if active_nav == 'users' %}aria-current="page"{% endif %}
-          href="{{ url_for('users.list_users') }}">Пользователи</a></li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if active_nav == 'testing' }}"
-          {% if active_nav == 'testing' %}aria-current="page"{% endif %}
-          href="{{ url_for('testing.index') }}">Тестирование</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {{ 'active' if active_nav in ('bases', 'users', 'testing') }}"
+             href="#" role="button" data-bs-toggle="dropdown"
+             aria-expanded="false">Настройки</a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item {{ 'active' if active_nav == 'bases' }}"
+                   href="{{ url_for('bases.settings') }}">1С База</a></li>
+            <li><a class="dropdown-item {{ 'active' if active_nav == 'users' }}"
+                   href="{{ url_for('users.list_users') }}">Пользователи</a></li>
+            <li><a class="dropdown-item {{ 'active' if active_nav == 'testing' }}"
+                   href="{{ url_for('testing.index') }}">Тестирование</a></li>
+          </ul>
+        </li>
         {% endif %}
       </ul>
       <span class="navbar-text me-3">

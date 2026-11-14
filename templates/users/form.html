@@ -6,6 +6,9 @@
   {% elif user %}Мои данные
   {% else %}Новый пользователь{% endif %}
 </h1>
+{% if user %}
+<p class="text-muted small">Создан: {{ user.created_at|dtfull }}</p>
+{% endif %}
 <div class="card" style="max-width: 720px;">
   <div class="card-body">
     <form method="post" novalidate>

@@ -15,7 +15,7 @@
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>ФИО</th><th>Логин (email)</th><th>Роль</th>
-    <th>Статус</th><th class="text-end">Действия</th>
+    <th>Статус</th><th>Создан</th><th class="text-end">Действия</th>
   </tr></thead>
   <tbody>
   {% for u in users %}
@@ -39,6 +39,7 @@
           <span class="badge text-bg-secondary">отключён</span>
         {% endif %}
       </td>
+      <td class="text-nowrap">{{ u.created_at|dtfull }}</td>
       <td class="text-end text-nowrap">
         {% if u.id != current_user.id %}
         <form class="d-inline" method="post"

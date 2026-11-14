@@ -1,5 +1,5 @@
-"""Маршруты договоров на сопровождение (ФТ-5)."""
-from flask import (Blueprint, flash, redirect, render_template, request,
+"""Маршруты договоров на сопровождение (ФТ-3)."""
+from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import or_
@@ -10,6 +10,14 @@ from engine.models import Client, Contract, Contractor, db
 bp = Blueprint('contracts', __name__)
 
 CONTRACT_STATUSES = ('draft', 'active', 'closed')
+
+
+def _get_visible_contract(contract_id):
+    """Договор, доступный текущему пользователю (сотрудник — только свои)."""
+    contract = Contract.query.get_or_404(contract_id)
+    if not current_user.is_admin and contract.client.responsible_id != current_user.id:
+        abort(403)
+    return contract
 
 
 @bp.route('/contracts')
@@ -43,27 +51,22 @@ def list_contracts():
                            search=search, status=status)
 
 
+@bp.route('/contracts/<int:contract_id>')
+@login_required
+def detail(contract_id):
+    contract = _get_visible_contract(contract_id)
+    return render_template('contracts/detail.html', contract=contract)
+
+
 @bp.route('/contracts/<int:contract_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_contract(contract_id):
-    contract = Contract.query.get_or_404(contract_id)
+    contract = _get_visible_contract(contract_id)
     form = ContractForm(obj=contract)
-    base_q = Client.query
-    if not current_user.is_admin:
-        base_q = base_q.filter_by(responsible_id=current_user.id)
-    form.client_id.choices = [(c.id, c.name) for c in
-                              base_q.order_by(Client.name).all()]
-    form.contractor_id.choices = [(0, '— не выбран —')] + [
-        (c.id, c.display_name)
-        for c in Contractor.query.order_by(Contractor.full_name).all()
-    ]
-    if request.method == 'GET':
-        form.contractor_id.data = contract.contractor_id or 0
     if form.validate_on_submit():
-        form.populate_obj(contract)
-        contract.contractor_id = form.contractor_id.data or None
+        contract.processed = form.processed.data
         db.session.add(contract)
         db.session.commit()
         flash('Договор сохранён', 'success')
-        return redirect(url_for('clients.detail', client_id=contract.client_id))
+        return redirect(url_for('contracts.detail', contract_id=contract.id))
     return render_template('contracts/form.html', form=form, contract=contract)

@@ -2,6 +2,9 @@
 {% block title %}{{ 'Вид отчётности' if deadline.id else 'Новый вид отчётности' }}{% endblock %}
 {% block content %}
 <h1 class="h4 mb-4">{{ 'Изменение вида отчётности' if deadline.id else 'Новый вид отчётности' }}</h1>
+{% if deadline.id %}
+<p class="text-muted small">Создан: {{ deadline.created_at|dtfull }}</p>
+{% endif %}
 <div class="card" style="max-width: 720px;">
   <div class="card-body">
     <form method="post" novalidate>

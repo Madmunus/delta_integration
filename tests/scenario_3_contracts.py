@@ -1,4 +1,4 @@
-"""Сценарий 7 (ФТ-5): загрузка договоров клиента из «1С:Бухгалтерия».
+"""Сценарий 3 (ФТ-3): загрузка договоров клиента из «1С:Бухгалтерия».
 
 Для клиента с собственными реквизитами подключения к «1С:Бухгалтерия»
 загружается справочник Catalog_Договоры. Проверяются реквизиты договора,
@@ -8,11 +8,11 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from engine.models import Client, Contract, Contractor, db
-from services.sync import sync_contracts
+from engine.sync import sync_contracts
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
                         login, seed_users)
 
-FT = 'ФТ-5'
+FT = 'ФТ-3'
 TITLE = 'Загрузка договоров клиента из «1С:Бухгалтерия»'
 DESCRIPTION = ('Загрузка справочника Catalog_Договоры по индивидуальным '
                'реквизитам подключения клиента. Результат: договоры созданы, '
@@ -80,6 +80,7 @@ def run():
         c3 = Contract.query.filter_by(number='ДГ-003').first()
         c1_data = (c1.signed_date, c1.end_date, c1.amount, c1.description,
                    c1.contractor_id, c1.contractor_name) if c1 else None
+        c1_id = c1.id if c1 else None
         c1_status, c2_status, c3_status = (
             c1.status if c1 else None,
             c2.status if c2 else None,
@@ -109,6 +110,16 @@ def run():
                 f'{c2_status_1c} → {c2_status}; '
                 f'{c3_status_1c} → {c3_status}')
 
+    # --- Шаг 2.1. Внутреннее поле «Обработан» при импорте ---------------
+    with app.app_context():
+        processed_values = [c.processed for c in
+                            Contract.query.order_by(Contract.id).all()]
+    steps.check(processed_values
+                and all(value is False for value in processed_values),
+                'При импорте договоров поле «Обработан» равно 0',
+                'у всех загруженных из 1С договоров признак «Обработан» = Нет',
+                f'значения: {processed_values}')
+
     # --- Шаг 3. Договоры видны в карточке клиента ----------------------
     web = app.test_client()
     login(web, EMAILS['admin'])
@@ -124,6 +135,45 @@ def run():
                 'ссылка на контрагента присутствует'
                 if f'href="/contractors/{contractor_id}"' in html
                 else 'ссылка на контрагента отсутствует')
+
+    # --- Шаг 3.1. Карточка договора ------------------------------------
+    card_html = web.get(f'/contracts/{c1_id}').get_data(as_text=True)
+    card_ok = all(value in card_html for value in (
+        'Договор № ДГ-001', 'Бухгалтерское сопровождение',
+        'Обработан', 'Нет', f'href="/clients/{client_id}"',
+        f'href="/contractors/{contractor_id}"'))
+    steps.check(card_ok and f'/contracts/{c1_id}/edit' in card_html,
+                'Карточка договора открывается и содержит реквизиты',
+                'номер, клиент, контрагент, описание, признак «Обработан» '
+                'и ссылка на редактирование',
+                'карточка договора оформлена корректно' if card_ok
+                else 'карточка договора неполная')
+
+    # --- Шаг 3.2. При редактировании доступен только «Обработан» -------
+    edit_html = web.get(f'/contracts/{c1_id}/edit').get_data(as_text=True)
+    readonly_ok = (all(value in edit_html for value in (
+        'ДГ-001', 'Бухгалтерское сопровождение', 'Редактируемые поля',
+        'name="processed"'))
+        and 'name="number"' not in edit_html
+        and 'name="amount"' not in edit_html)
+    steps.check(readonly_ok,
+                'При редактировании договора доступен только признак «Обработан»',
+                'остальные реквизиты показаны только для чтения',
+                'поля только для чтения' if readonly_ok
+                else 'редактируемые поля не ограничены')
+    resp = web.post(f'/contracts/{c1_id}/edit',
+                    data={'processed': 'y'}, follow_redirects=True)
+    saved_html = resp.get_data(as_text=True)
+    with app.app_context():
+        saved = db.session.get(Contract, c1_id)
+        saved_ok = (saved is not None and saved.processed is True
+                    and saved.number == 'ДГ-001'
+                    and saved.description == 'Бухгалтерское сопровождение')
+        saved_value = saved.processed if saved else None
+    steps.check(resp.status_code == 200 and saved_ok and 'Да' in saved_html,
+                'Признак «Обработан» сохраняется, остальные поля не меняются',
+                'после сохранения «Обработан» = Да, реквизиты прежние',
+                f'Обработан: {saved_value}')
 
     # --- Шаг 4. Повторная загрузка не создаёт дублей -------------------
     with app.app_context():
@@ -188,6 +238,23 @@ def run():
                 'поиск «Бухгалтерское» находит только договор ДГ-001',
                 'найден только ДГ-001' if 'ДГ-001' in search_html
                 and 'ДГ-002' not in search_html else 'фильтр по полям не работает')
+    registry_ok = ('<th>Номер</th>' in page1
+                   and '>Действия<' in page1
+                   and f'href="/contracts/{c1_id}"' in search_html
+                   and f'href="/contracts/{c1_id}/edit"' in search_html
+                   and 'fa-pen' in search_html)
+    steps.check(registry_ok,
+                'В реестре договоров есть карточка и кнопка редактирования',
+                'столбец «Номер» ведёт в карточку договора, в конце таблицы — '
+                '«Действия» с кнопкой-карандашом',
+                'столбцы и ссылки присутствуют' if registry_ok
+                else 'столбцы или ссылки отсутствуют')
+    steps.check(f'href="/contractors/{contractor_id}"' in search_html,
+                'В реестре договоров есть ссылка на карточку контрагента',
+                'наименование контрагента в строке таблицы ведёт в его карточку',
+                'ссылка на контрагента присутствует'
+                if f'href="/contractors/{contractor_id}"' in search_html
+                else 'ссылка на контрагента отсутствует')
     steps.check('ДГ-002' in status_html
                 and 'ДГ-001' not in status_html
                 and 'ДГ-003' not in status_html

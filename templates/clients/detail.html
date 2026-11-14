@@ -42,8 +42,8 @@
         {% if client.status == 'active' %}<span class="badge text-bg-success">активный</span>
         {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
       </dd>
-      <dt class="col-sm-3">Дата добавления</dt>
-      <dd class="col-sm-9">{{ client.date_added|dt }}</dd>
+      <dt class="col-sm-3">Дата создания</dt>
+      <dd class="col-sm-9">{{ client.created_at|dtfull }}</dd>
       <dt class="col-sm-3">Ответственный</dt>
       <dd class="col-sm-9">
         <span class="badge text-bg-info">{{ client.responsible.fio if client.responsible else 'не назначен' }}</span>
@@ -62,11 +62,12 @@
   <div class="tab-pane fade" id="tab-contracts">
     <table class="table table-sm align-middle">
       <thead><tr><th>№</th><th>Дата</th><th>Контрагент</th>
-        <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th></tr></thead>
+        <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th>
+        <th>Создан</th></tr></thead>
       <tbody>
       {% for c in contracts %}
         <tr>
-          <td><a href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}">{{ c.number }}</a></td>
+          <td><a href="{{ url_for('contracts.detail', contract_id=c.id) }}">{{ c.number }}</a></td>
           <td>{{ c.signed_date|dt }}</td>
           <td>
             {% if c.contractor %}
@@ -78,9 +79,10 @@
           <td><span class="badge
             {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
             {{ c.status_1c or c.status_label }}</span></td>
+          <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="text-muted">Договоров нет</td></tr>
+        <tr><td colspan="7" class="text-muted">Договоров нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -89,7 +91,7 @@
   <div class="tab-pane fade" id="tab-tasks">
     <table class="table table-sm align-middle">
       <thead><tr><th>Задача</th><th>Исполнитель</th><th>Срок</th>
-        <th>Приоритет</th><th>Статус</th></tr></thead>
+        <th>Приоритет</th><th>Статус</th><th>Создан</th></tr></thead>
       <tbody>
       {% for t in tasks %}
         <tr class="{{ 'table-danger' if t.is_overdue }}">
@@ -98,9 +100,10 @@
           <td class="text-nowrap">{{ t.due_date|dt }}</td>
           <td>{{ t.priority_label }}</td>
           <td>{{ t.status_label }}</td>
+          <td class="text-nowrap">{{ t.created_at|dtfull }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="5" class="text-muted">Задач нет</td></tr>
+        <tr><td colspan="6" class="text-muted">Задач нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -109,19 +112,25 @@
   <div class="tab-pane fade" id="tab-docs">
     <table class="table table-sm align-middle">
       <thead><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
-        <th>Статус</th><th>Ссылка</th></tr></thead>
+        <th>Контрагент</th><th>Статус</th><th>Ссылка</th><th>Создан</th></tr></thead>
       <tbody>
       {% for d in documents %}
         <tr>
           <td>{{ d.doc_type }}</td>
           <td>{{ d.number }}</td>
           <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+          <td>
+            {% if d.contractor %}
+              <a href="{{ url_for('contractors.detail', contractor_id=d.contractor_id) }}">{{ d.contractor.display_name }}</a>
+            {% else %}—{% endif %}
+          </td>
           <td>{{ d.status or '—' }}</td>
           <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
               rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
+          <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="5" class="text-muted">Документы из «1С:Документооборот»
+        <tr><td colspan="7" class="text-muted">Документы из «1С:Документооборот»
           появятся после настройки интеграции</td></tr>
       {% endfor %}
       </tbody>

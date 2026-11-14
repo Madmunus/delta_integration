@@ -5,13 +5,13 @@ from flask_login import current_user, login_required
 
 from engine.forms import TaskForm
 from engine.models import Client, Task, User, db
-from services.tasks import mark_overdue_tasks
+from engine.tasks import mark_overdue_tasks
 
 bp = Blueprint('tasks', __name__)
 
 
 def _task_filter(q):
-    """ФТ-7: сотрудник видит только свои задачи."""
+    """ФТ-1: сотрудник видит только свои задачи."""
     if not current_user.is_admin:
         q = q.filter(Task.assignee_id == current_user.id)
     return q
@@ -20,7 +20,7 @@ def _task_filter(q):
 @bp.route('/tasks')
 @login_required
 def list_tasks():
-    mark_overdue_tasks()  # актуализация статусов при просмотре (ФТ-4)
+    mark_overdue_tasks()  # актуализация статусов при просмотре (ФТ-6)
 
     q = _task_filter(Task.query)
     status = request.args.get('status') or ''

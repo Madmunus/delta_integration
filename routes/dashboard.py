@@ -45,7 +45,7 @@ def index():
     recent_clients = Client.query
     if not current_user.is_admin:
         recent_clients = recent_clients.filter_by(responsible_id=current_user.id)
-    recent_clients = recent_clients.order_by(Client.date_added.desc()).limit(5).all()
+    recent_clients = recent_clients.order_by(Client.created_at.desc()).limit(5).all()
 
     return render_template('dashboard.html',
                            active_clients=active_clients,

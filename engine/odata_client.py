@@ -5,6 +5,7 @@
 """
 import logging
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import quote, urljoin
 
 import requests
 
@@ -49,6 +50,43 @@ def document_type(entity: str) -> str:
     """Вид документа — имя сущности 1С без префикса Document_."""
     prefix = 'Document_'
     return entity[len(prefix):] if entity.startswith(prefix) else entity
+
+
+def document_object_url(base_url: str, entity: str, ref_key: str,
+                        row: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Ссылка на объект документа в «1С:Документооборот».
+
+    Приоритет источников:
+      1. явное поле ответа OData (``Ссылка``, ``СсылкаНаОбъект``, ``URL``);
+      2. ``__metadata.uri`` — канонический адрес ресурса OData;
+      3. ссылка веб-клиента 1С (``.../e1cib/data/Документ.<Вид>?ref=<GUID>``),
+         если базовый URL содержит ``/odata/``;
+      4. адрес ресурса OData ``<сущность>(guid'<GUID>')``.
+    """
+    row = row or {}
+    for key in ('Ссылка', 'СсылкаНаОбъект', 'URL', 'Hyperlink', 'Uri'):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    metadata = row.get('__metadata')
+    if isinstance(metadata, dict):
+        uri = metadata.get('uri')
+        if isinstance(uri, str) and uri.strip():
+            return urljoin(base_url.rstrip('/') + '/', uri)
+
+    ref = str(ref_key).strip() if ref_key else ''
+    if not ref:
+        return None
+
+    base = base_url.rstrip('/') + '/'
+    marker = '/odata/'
+    if marker in base:
+        # Веб-клиент 1С: http://server/base/e1cib/data/Документ.<Вид>?ref=<GUID>
+        web_root = base.split(marker, 1)[0] + '/'
+        name = quote(document_type(entity))
+        return f'{web_root}e1cib/data/Документ.{name}?ref={ref}'
+    return f"{base}{entity}(guid'{ref}')"
 
 
 class ODataError(Exception):
@@ -187,6 +225,8 @@ class ODataClient:
             for row in rows:
                 item = dict(row)
                 item['ВидДокумента'] = doc_type
+                item['СсылкаНаОбъект'] = document_object_url(
+                    self.base_url, ent, row.get('Ref_Key'), row)
                 documents.append(item)
         return documents
 

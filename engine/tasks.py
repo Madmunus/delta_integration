@@ -12,7 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import current_app
 
 from engine.models import Client, ReportingDeadline, Task, db
-from services.sync import sync_clients
+from engine.sync import sync_clients, sync_documents
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,13 @@ def init_scheduler(app):
         seconds=app.config['DEADLINE_CHECK_INTERVAL'],
         id='generate_deadline_tasks',
         name='Формирование задач по срокам отчётности',
+    )
+    scheduler.add_job(
+        partial(_run_in_context, app, sync_documents),
+        'interval',
+        seconds=app.config['DOCUMENTS_SYNC_INTERVAL'],
+        id='sync_documents',
+        name='Загрузка документов из 1С:Документооборот',
     )
     scheduler.start()
     logger.info('Планировщик запущен')

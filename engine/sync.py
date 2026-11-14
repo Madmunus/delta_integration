@@ -15,8 +15,9 @@ from decimal import Decimal, InvalidOperation
 
 from engine.models import (Client, Contractor, Contract, Document,
                            OneCSetting, db)
-from services.odata_client import (DOCUMENT_ENTITIES, ODataError,
-                                   client_for_client, client_for_settings)
+from engine.odata_client import (DOCUMENT_ENTITIES, ODataError,
+                                 client_for_client, client_for_settings,
+                                 document_object_url)
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,8 @@ def sync_contracts(client: Client) -> dict:
                         if ref_key else None)
             if contract is None:
                 contract = Contract(number=number, client_id=client.id,
-                                    external_ref=ref_key or None)
+                                    external_ref=ref_key or None,
+                                    processed=False)
                 db.session.add(contract)
                 action = 'created'
             else:
@@ -262,7 +264,7 @@ def sync_all_contracts() -> dict:
 
 # --------------------------------------------------------------------- документы
 def sync_documents(settings=None, entities=None, days: int = 30) -> int:
-    """Загрузка документов из «1С:Документооборот» (ФТ-2).
+    """Загрузка документов из «1С:Документооборот» (ФТ-4).
 
     Опрашивает перечень видов документов (по умолчанию все сущности
     из DOCUMENT_ENTITIES) и сохраняет реквизиты: вид документа, номер,
@@ -313,6 +315,15 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
         doc.number = str(row.get('Номер') or row.get('Number') or '')
         doc.doc_date = _parse_date(row.get('Дата') or row.get('Date'))
         doc.status = str(row.get('Статус') or '')
+        # Ссылка на объект в «1С:Документооборот»: явное поле ответа 1С,
+        # адрес ресурса OData или deep link веб-клиента.
+        external_url = _clean(
+            row.get('СсылкаНаОбъект') or row.get('Ссылка')
+            or row.get('URL') or row.get('Hyperlink'))
+        if not external_url:
+            external_url = document_object_url(
+                setting.odata_url, f'Document_{doc.doc_type}', ref_key, row)
+        doc.external_url = external_url or None
         db.session.commit()
         processed += 1
     return processed

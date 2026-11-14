@@ -1,4 +1,4 @@
-"""Сценарий 1 (ФТ-1): синхронизация клиентов и контрагентов из «1С».
+"""Сценарий 2 (ФТ-2): синхронизация клиентов и контрагентов из «1С».
 
 Запуск синхронизации из главной базы «1С:Предприятие»: клиенты
 загружаются из Catalog_Организации, контрагенты — из
@@ -6,11 +6,11 @@ Catalog_Контрагенты. Проверяется появление зап
 (DeletionMark) и отсутствие дублирования при повторном запуске.
 """
 from engine.models import Client, Contractor, OneCSetting, db
-from services.sync import sync_clients
+from engine.sync import sync_clients
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
                         login, seed_users)
 
-FT = 'ФТ-1'
+FT = 'ФТ-2'
 TITLE = 'Синхронизация клиентов и контрагентов из базы 1С:Предприятие'
 DESCRIPTION = ('Запуск синхронизации из главной базы «1С:Предприятие»: '
                'клиенты из Catalog_Организации, контрагенты из '
@@ -209,14 +209,15 @@ def run():
 
     # --- Шаг 7. Нередактируемые поля в карточке клиента ----------------
     edit_html = web.get(f'/clients/{alpha.id}/edit').get_data(as_text=True)
+    read_only_ok = all(value in edit_html for value in (
+        alpha.name, alpha.inn, alpha.kpp or '—', ALPHA_KEY,
+        'Реквизиты', 'Редактируемые поля'))
     steps.check(
-        all(value in edit_html for value in (
-            alpha.name, alpha.inn, alpha.kpp or '—', ALPHA_KEY,
-            'Данные из «1С:Предприятие»', 'Редактируемые поля')),
+        read_only_ok,
         'В карточке редактирования показаны нередактируемые поля',
         'наименование, ИНН, КПП, Ref_Key и статус доступны только для чтения',
         'информационные поля отображаются'
-        if ALPHA_KEY in edit_html else 'информационные поля отсутствуют')
+        if read_only_ok else 'информационные поля отсутствуют')
     steps.check('badge text-bg-info' not in html,
                 'На странице списка клиентов нет badge «1С»',
                 'бейдж источника удалён из реестра клиентов',
@@ -225,24 +226,26 @@ def run():
 
     # --- Шаг 8. Карточка клиента ---------------------------------------
     card_html = web.get(f'/clients/{alpha.id}').get_data(as_text=True)
-    labels = ('Ключ 1С', 'Полное наименование', 'ИНН', 'КПП',
-              'URL OData (1С:Бухгалтерия)', 'Пользователь', 'Пароль', 'Заметки')
+    labels = ('Ключ 1С', 'Наименование', 'ИНН', 'КПП', 'Статус',
+              'Дата создания', 'Ответственный', 'Заметки',
+              'URL OData (1С:Бухгалтерия)', 'Пользователь', 'Пароль')
     positions = [card_html.find(f'>{label}<') for label in labels]
-    steps.check(all(pos >= 0 for pos in positions)
-                and positions == sorted(positions),
+    order_ok = (all(pos >= 0 for pos in positions)
+                and positions == sorted(positions))
+    steps.check(order_ok,
                 'В карточке клиента реквизиты идут в заданном порядке',
-                'Ключ 1С, наименование, ИНН, КПП, URL OData, пользователь, '
-                'пароль, заметки',
-                'порядок реквизитов соблюдён' if positions == sorted(positions)
+                'Ключ 1С, наименование, ИНН, КПП, статус, дата создания, '
+                'ответственный, заметки, URL OData, пользователь, пароль',
+                'порядок реквизитов соблюдён' if order_ok
                 else f'порядок нарушен: {positions}')
-    steps.check('>1С</span>' not in card_html
-                and 'ответственный:' not in card_html
-                and 'badge text-bg-info' in card_html,
+    header_ok = ('>1С</span>' not in card_html
+                 and 'ответственный:' not in card_html
+                 and 'badge text-bg-info' in card_html)
+    steps.check(header_ok,
                 'В заголовке карточки нет badge «1С» и подписи ответственного',
                 'статус и ответственный отображаются в заголовке без подписи',
                 'заголовок карточки оформлен корректно'
-                if 'ответственный:' not in card_html
-                else 'подпись ответственного всё ещё отображается')
+                if header_ok else 'заголовок карточки оформлен некорректно')
 
     # --- Шаг 9. Повторный запуск не создаёт дублей --------------------
     with app.app_context():

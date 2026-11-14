@@ -18,6 +18,10 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-outline-success">Синхронизировать договоры</button>
     </form>
+    <form method="post" action="{{ url_for('bases.run_documents_sync') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-success">Синхронизировать документы</button>
+    </form>
   </div>
 </div>
 
@@ -77,6 +81,8 @@
       <div class="card-body">
         <h2 class="h6 text-muted text-uppercase mb-3">Состояние синхронизации</h2>
         <dl class="row mb-0">
+          <dt class="col-7">Настройка создана</dt>
+          <dd class="col-5 text-end">{{ setting.created_at|dtfull }}</dd>
           <dt class="col-7">Последняя синхронизация</dt>
           <dd class="col-5 text-end">
             {{ setting.last_sync_at|dt if setting.last_sync_at else 'ещё не выполнялась' }}
@@ -89,6 +95,10 @@
           <dd class="col-5 text-end">
             <a href="{{ url_for('contractors.list_contractors') }}">{{ contractors_total }}</a>
           </dd>
+          <dt class="col-7">Документов</dt>
+          <dd class="col-5 text-end">
+            <a href="{{ url_for('documents.list_documents') }}">{{ documents_total }}</a>
+          </dd>
         </dl>
       </div>
     </div>
@@ -97,9 +107,11 @@
 
 <div class="alert alert-info mt-3 mb-4">
   Синхронизация клиентов и контрагентов выполняется автоматически каждые
-  {{ config['SYNC_INTERVAL_SECONDS'] // 60 or 1 }} мин. Ручные атрибуты клиентов
-  (ответственный, заметки, подключение к 1С:Бухгалтерия) не изменяются.
-  Договоры загружаются по реквизитам подключения, указанным в карточке клиента.
+  {{ config['SYNC_INTERVAL_SECONDS'] // 60 or 1 }} мин, загрузка документов —
+  каждые {{ config['DOCUMENTS_SYNC_INTERVAL'] // 60 or 1 }} мин.
+  Ручные атрибуты клиентов (ответственный, заметки, подключение
+  к 1С:Бухгалтерия) не изменяются. Договоры загружаются по реквизитам
+  подключения, указанным в карточке клиента.
 </div>
 
 {% endblock %}

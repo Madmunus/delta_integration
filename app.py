@@ -5,7 +5,8 @@
 Переменные окружения:
     DELTA_SECRET_KEY         — секретный ключ сессий
     DELTA_DATABASE_URL       — строка подключения (PostgreSQL в продакшене)
-    DELTA_SYNC_INTERVAL      — период синхронизации, сек (по умолчанию 3600)
+    DELTA_SYNC_INTERVAL      — период синхронизации клиентов, сек (по умолчанию 3600)
+    DELTA_DOCUMENTS_INTERVAL — период загрузки документов, сек (по умолчанию 3600)
 """
 import logging
 import os
@@ -13,6 +14,7 @@ import os
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, logout_user
 from flask_wtf import CSRFProtect
+from sqlalchemy import inspect, text
 
 from engine import models as _m  # noqa: F401  (регистрация моделей в db)
 from engine.config import config
@@ -21,6 +23,55 @@ from engine.models import User, db
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+
+
+def _ensure_schema():
+    """Привести существующую БД к актуальной схеме без полноценных миграций."""
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    if not tables:
+        return
+
+    def columns_of(table):
+        return {column['name'] for column in inspector.get_columns(table)}
+
+    with db.engine.begin() as connection:
+        # clients.date_added (DATE) → clients.created_at (DATETIME)
+        if 'clients' in tables:
+            client_columns = columns_of('clients')
+            if 'date_added' in client_columns and 'created_at' not in client_columns:
+                connection.execute(text(
+                    'ALTER TABLE clients RENAME COLUMN date_added TO created_at'))
+                client_columns.discard('date_added')
+                client_columns.add('created_at')
+            elif 'created_at' not in client_columns:
+                connection.execute(text(
+                    'ALTER TABLE clients ADD COLUMN created_at '
+                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
+                client_columns.add('created_at')
+            # В старых записях хранилась только дата — добавляем время.
+            connection.execute(text(
+                "UPDATE clients SET created_at = created_at || ' 00:00:00' "
+                'WHERE created_at IS NOT NULL AND length(created_at) = 10'))
+
+        # created_at во всех остальных таблицах моделей
+        for table in ('onec_settings', 'contractors', 'contracts',
+                      'documents', 'reporting_deadlines'):
+            if table not in tables:
+                continue
+            if 'created_at' not in columns_of(table):
+                connection.execute(text(
+                    f'ALTER TABLE {table} ADD COLUMN created_at '
+                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
+                connection.execute(text(
+                    f'UPDATE {table} SET created_at = CURRENT_TIMESTAMP '
+                    "WHERE created_at = '1970-01-01 00:00:00'"))
+
+        # Внутренний признак договора «Обработан»
+        if 'contracts' in tables and 'processed' not in columns_of('contracts'):
+            connection.execute(text(
+                'ALTER TABLE contracts ADD COLUMN processed '
+                'BOOLEAN NOT NULL DEFAULT FALSE'))
 
 
 def create_app(config_name=None):
@@ -50,6 +101,7 @@ def create_app(config_name=None):
     from routes.contracts import bp as contracts_bp
     from routes.dashboard import bp as dashboard_bp
     from routes.deadlines import bp as deadlines_bp
+    from routes.documents import bp as documents_bp
     from routes.reports import bp as reports_bp
     from routes.tasks import bp as tasks_bp
     from routes.testing import bp as testing_bp
@@ -61,6 +113,7 @@ def create_app(config_name=None):
     app.register_blueprint(clients_bp)
     app.register_blueprint(contractors_bp)
     app.register_blueprint(contracts_bp)
+    app.register_blueprint(documents_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(deadlines_bp)
     app.register_blueprint(bases_bp)
@@ -87,6 +140,7 @@ def create_app(config_name=None):
             ('clients', '/clients'),
             ('contractors', '/contractors'),
             ('contracts', '/contracts'),
+            ('documents', '/documents'),
             ('tasks', '/tasks'),
             ('deadlines', '/deadlines'),
             ('reports', '/reports'),
@@ -108,6 +162,16 @@ def create_app(config_name=None):
             return '—'
         try:
             return value.strftime('%d.%m.%Y')
+        except AttributeError:
+            return str(value)
+
+    @app.template_filter('dtfull')
+    def format_datetime(value):
+        """Дата и время создания записи: дд.мм.гггг чч:мм:сс."""
+        if value is None:
+            return '—'
+        try:
+            return value.strftime('%d.%m.%Y %H:%M:%S')
         except AttributeError:
             return str(value)
 
@@ -143,15 +207,20 @@ def create_app(config_name=None):
     # --- База данных ---
     with app.app_context():
         db.create_all()
+        _ensure_schema()
 
     return app
 
 
 app = create_app()
 
-# --- Планировщик (только вне отладчика, чтобы не дублировать процессы) ---
-if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or app.config.get('DEBUG') is False:
-    from services.tasks import init_scheduler
+# --- Планировщик ---
+# В dev-режиме запускается только в дочернем процессе отладчика; при импорте
+# приложения (gunicorn, `python -m engine.run_jobs`) не стартует, чтобы задания
+# не дублировались. В продакшене используйте `python app.py` или cron/run_jobs.
+if (os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+        or (__name__ == '__main__' and app.config.get('DEBUG') is False)):
+    from engine.tasks import init_scheduler
     init_scheduler(app)
 
 

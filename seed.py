@@ -12,15 +12,15 @@
 Пароли тестовых учётных записей соответствуют политике:
 не менее 13 символов, минимум одна цифра, заглавная и
 строчная латинские буквы, спецсимвол; без частей логина
-и транслитерации ФИО. Повторный запуск на заполненной базе
-обновляет только пароли демо-пользователей.
+и транслитерации ФИО. Повторный запуск дополняет базу недостающими
+демо-данными и обновляет пароли демо-пользователей, не создавая дублей.
 """
 from datetime import date, datetime, timedelta
 
 from app import app
 from engine.models import (Client, Contract, Contractor, Document,
                            OneCSetting, ReportingDeadline, Task, User, db)
-from services.odata_client import DOCUMENT_ENTITIES
+from engine.odata_client import DOCUMENT_ENTITIES
 
 # (email, ФИО, роль, пароль, активен)
 USERS = [
@@ -57,7 +57,7 @@ USERS = [
 # Клиенты из Catalog_Организации главной базы 1С:
 # (Ref_Key, Наименование, ИНН, КПП,
 # Статус, индекс ответственного в USERS (с единицы; 0 — не назначен),
-# Дата добавления, Заметки).
+# Дата создания, Заметки).
 CLIENTS = [
     ('22222222-2222-2222-2222-000000000001', 'ООО «Ромашка»', '7701234567', '770101001', 'active', 2,
      date(2025, 9, 15), 'Розничная торговля. Отчётность УСН.'),
@@ -238,125 +238,171 @@ DOCUMENTS = _demo_documents()
 _STATUS_1C = {'active': 'Действует', 'closed': 'Закрыт', 'draft': 'Проект'}
 
 
-def _update_passwords():
-    """Обновляет пароли уже существующих демо-пользователей (без пересева)."""
-    print('Обновление паролей существующих пользователей…')
-    updated = 0
-    for email, _fio, _role, password, _is_active in USERS:
+def _seed_users():
+    """Создать недостающих демо-пользователей и обновить их пароли."""
+    users = {}
+    created = 0
+    for email, fio, role, password, is_active in USERS:
         user = User.query.filter_by(email=email).first()
         if user is None:
-            continue
+            user = User(email=email, fio=fio, role=role,
+                        is_active_flag=is_active)
+            db.session.add(user)
+            created += 1
         user.set_password(password)
-        updated += 1
-    db.session.commit()
-    print(f'Обновлено паролей: {updated}.')
-    for email, _fio, _role, password, _is_active in USERS:
-        if User.query.filter_by(email=email).first() is not None:
-            print(f'  {email:<22} {password}')
+        users[email] = user
+    db.session.flush()
+    return [users[email] for email, *_ in USERS], created
 
 
-def main():
-    with app.app_context():
-        if User.query.count() > 0:
-            _update_passwords()
-            print('База уже содержит пользователей — остальные данные не изменялись.')
-            return
+def _seed_setting():
+    """Создать настройку подключения к 1С, если её ещё нет."""
+    setting = OneCSetting.get()
+    if setting not in db.session:
+        db.session.add(setting)
+        return 1
+    return 0
 
-        print('Создание пользователей…')
-        users = {}
-        for email, fio, role, password, is_active in USERS:
-            u = User(email=email, fio=fio, role=role,
-                     is_active_flag=is_active)
-            u.set_password(password)
-            db.session.add(u)
-            users[email] = u
-        db.session.flush()  # чтобы получить id до итогового commit
-        user_list = list(users.values())
 
-        print('Настройка подключения к 1С:Предприятие…')
-        db.session.add(OneCSetting(
-            id=1,
-            odata_url='',
-            username='',
-            password='',
-        ))
-
-        print(f'Создание клиентов ({len(CLIENTS)})…')
-        clients = []
-        for ref, name, inn, kpp, status, resp_idx, added, notes in CLIENTS:
-            c = Client(
+def _seed_clients(user_list):
+    """Создать недостающих клиентов; существующие записи не изменяются."""
+    clients = []
+    created = 0
+    for ref, name, inn, kpp, status, resp_idx, added, notes in CLIENTS:
+        client = Client.query.filter_by(external_ref=ref).first()
+        if client is None:
+            client = Client(
                 external_ref=ref,
                 name=name, inn=inn or None, kpp=kpp or None,
                 status=status, notes=notes,
                 responsible_id=user_list[resp_idx - 1].id if resp_idx else None,
-                date_added=added)
-            db.session.add(c)
-            clients.append(c)
-        db.session.flush()  # id клиентов нужны для договоров и задач
+                created_at=datetime.combine(added, datetime.min.time()))
+            db.session.add(client)
+            created += 1
+        clients.append(client)
+    db.session.flush()
+    return clients, created
 
-        print(f'Создание контрагентов ({len(CONTRACTORS)})…')
-        contractors = []
-        for ref, full_name, inn, kpp, description in CONTRACTORS:
-            c = Contractor(external_ref=ref, full_name=full_name,
-                           inn=inn, kpp=kpp, description=description)
-            db.session.add(c)
-            contractors.append(c)
-        db.session.flush()
 
-        print('Создание справочника отчётности…')
-        for name, code, periodicity, due_day, offset, category in DEADLINES:
-            db.session.add(ReportingDeadline(
-                name=name, code=code, periodicity=periodicity,
-                due_day=due_day, period_offset=offset,
-                taxpayer_category=category, is_enabled=True))
+def _seed_contractors():
+    """Создать недостающих контрагентов; существующие не изменяются."""
+    contractors = []
+    created = 0
+    for ref, full_name, inn, kpp, description in CONTRACTORS:
+        contractor = Contractor.query.filter_by(external_ref=ref).first()
+        if contractor is None:
+            contractor = Contractor(external_ref=ref, full_name=full_name,
+                                    inn=inn, kpp=kpp, description=description)
+            db.session.add(contractor)
+            created += 1
+        contractors.append(contractor)
+    db.session.flush()
+    return contractors, created
 
-        print(f'Создание договоров ({len(CONTRACTS)})…')
-        for idx, (number, client_idx, contractor_idx, description,
-                  amount, status, start, end) in enumerate(CONTRACTS, start=1):
-            contractor = contractors[contractor_idx - 1]
-            db.session.add(Contract(
-                number=number, signed_date=start,
-                client_id=clients[client_idx - 1].id,
-                contractor_id=contractor.id,
-                external_ref=f'aaaaaaaa-0000-0000-0000-{idx:012d}',
-                description=description,
-                amount=amount, status=status,
-                status_1c=_STATUS_1C.get(status, status),
-                start_date=start, end_date=end))
 
-        print(f'Создание документов ({len(DOCUMENTS)})…')
-        for number, doc_type, doc_date, status, client_idx, contractor_idx, ref in DOCUMENTS:
-            contractor = (contractors[contractor_idx - 1]
-                          if contractor_idx else None)
-            db.session.add(Document(
-                external_ref=ref,
-                client_id=clients[client_idx - 1].id,
-                contractor_id=contractor.id if contractor else None,
-                doc_type=doc_type,
-                number=number,
-                doc_date=doc_date,
-                status=status))
+def _seed_deadlines():
+    """Создать недостающие виды отчётности (по коду)."""
+    created = 0
+    for name, code, periodicity, due_day, offset, category in DEADLINES:
+        if ReportingDeadline.query.filter_by(code=code).first() is not None:
+            continue
+        db.session.add(ReportingDeadline(
+            name=name, code=code, periodicity=periodicity,
+            due_day=due_day, period_offset=offset,
+            taxpayer_category=category, is_enabled=True))
+        created += 1
+    return created
 
-        print('Создание демонстрационных задач…')
-        today = date.today()
-        demo_tasks = [
-            ('Сверка с ФНС по ООО «Ромашка»', 1, 2, today + timedelta(days=5), 2, 'new'),
-            ('Подготовка декларации по НДС ООО «ТехноПром»', 2, 3, today + timedelta(days=10), 1, 'in_progress'),
-            ('Восстановление документов ИП Сидоров', 3, 2, today - timedelta(days=3), 1, 'overdue'),
-            ('Получение справки о отсутствии задолженности', 1, 2, today + timedelta(days=2), 3, 'new'),
-            ('Закрытие месяца по всем клиентам', 0, 1, today + timedelta(days=7), 2, 'in_progress'),
-            ('Обновление карточек клиентов после сверки', 0, 1, today - timedelta(days=1), 3, 'done'),
-        ]
-        for title, client_idx, assignee_idx, due, priority, status in demo_tasks:
-            db.session.add(Task(
-                title=title,
-                description='Демонстрационная задача, создана скриптом seed.py.',
-                client_id=clients[client_idx - 1].id if client_idx else None,
-                assignee_id=user_list[assignee_idx - 1].id,
-                due_date=due, priority=priority, status=status))
+
+def _seed_contracts(clients, contractors):
+    """Создать недостающие договоры (по external_ref)."""
+    created = 0
+    for idx, (number, client_idx, contractor_idx, description,
+              amount, status, start, end) in enumerate(CONTRACTS, start=1):
+        ref = f'aaaaaaaa-0000-0000-0000-{idx:012d}'
+        if Contract.query.filter_by(external_ref=ref).first() is not None:
+            continue
+        contractor = contractors[contractor_idx - 1]
+        db.session.add(Contract(
+            number=number, signed_date=start,
+            client_id=clients[client_idx - 1].id,
+            contractor_id=contractor.id,
+            external_ref=ref,
+            description=description,
+            amount=amount, status=status,
+            status_1c=_STATUS_1C.get(status, status),
+            start_date=start, end_date=end))
+        created += 1
+    return created
+
+
+def _seed_documents(clients, contractors):
+    """Создать недостающие документы (по external_ref)."""
+    created = 0
+    for number, doc_type, doc_date, status, client_idx, contractor_idx, ref in DOCUMENTS:
+        if Document.query.filter_by(external_ref=ref).first() is not None:
+            continue
+        contractor = (contractors[contractor_idx - 1]
+                      if contractor_idx else None)
+        db.session.add(Document(
+            external_ref=ref,
+            client_id=clients[client_idx - 1].id,
+            contractor_id=contractor.id if contractor else None,
+            doc_type=doc_type,
+            number=number,
+            doc_date=doc_date,
+            status=status))
+        created += 1
+    return created
+
+
+def _seed_tasks(clients, user_list):
+    """Создать недостающие демонстрационные задачи (по заголовку)."""
+    created = 0
+    today = date.today()
+    demo_tasks = [
+        ('Сверка с ФНС по ООО «Ромашка»', 1, 2, today + timedelta(days=5), 2, 'new'),
+        ('Подготовка декларации по НДС ООО «ТехноПром»', 2, 3, today + timedelta(days=10), 1, 'in_progress'),
+        ('Восстановление документов ИП Сидоров', 3, 2, today - timedelta(days=3), 1, 'overdue'),
+        ('Получение справки о отсутствии задолженности', 1, 2, today + timedelta(days=2), 3, 'new'),
+        ('Закрытие месяца по всем клиентам', 0, 1, today + timedelta(days=7), 2, 'in_progress'),
+        ('Обновление карточек клиентов после сверки', 0, 1, today - timedelta(days=1), 3, 'done'),
+    ]
+    for title, client_idx, assignee_idx, due, priority, status in demo_tasks:
+        if Task.query.filter_by(title=title).first() is not None:
+            continue
+        db.session.add(Task(
+            title=title,
+            description='Демонстрационная задача, создана скриптом seed.py.',
+            client_id=clients[client_idx - 1].id if client_idx else None,
+            assignee_id=user_list[assignee_idx - 1].id,
+            due_date=due, priority=priority, status=status))
+        created += 1
+    return created
+
+
+def main():
+    with app.app_context():
+        user_list, users_created = _seed_users()
+        setting_created = _seed_setting()
+        clients, clients_created = _seed_clients(user_list)
+        contractors, contractors_created = _seed_contractors()
+        deadlines_created = _seed_deadlines()
+        contracts_created = _seed_contracts(clients, contractors)
+        documents_created = _seed_documents(clients, contractors)
+        tasks_created = _seed_tasks(clients, user_list)
 
         db.session.commit()
-        print('Готово. Тестовые учётные записи:')
+        print('Готово. Создано:')
+        print(f'  пользователей: {users_created}')
+        print(f'  настройка 1С: {setting_created}')
+        print(f'  клиентов: {clients_created}')
+        print(f'  контрагентов: {contractors_created}')
+        print(f'  видов отчётности: {deadlines_created}')
+        print(f'  договоров: {contracts_created}')
+        print(f'  документов: {documents_created}')
+        print(f'  задач: {tasks_created}')
+        print('Пароли демо-учётных записей обновлены. Тестовые учётные записи:')
         for email, fio, role, password, is_active in USERS:
             print(f'  {email:<22} {password:<20} '
                   f'{"руководитель" if role == "admin" else "сотрудник":<12} '

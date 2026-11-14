@@ -35,6 +35,7 @@
       <th>ИНН</th>
       <th>КПП</th>
       <th>Описание</th>
+      <th>Создан</th>
     </tr>
   </thead>
   <tbody>
@@ -44,9 +45,10 @@
       <td class="text-nowrap">{{ c.inn or '—' }}</td>
       <td>{{ c.kpp or '—' }}</td>
       <td>{{ c.description|truncate(80) if c.description else '—' }}</td>
+      <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="4" class="text-muted">
+    <tr><td colspan="5" class="text-muted">
       {% if search %}Контрагенты не найдены{% else %}Контрагенты появятся после синхронизации с базой 1С:Предприятие{% endif %}
     </td></tr>
   {% endfor %}

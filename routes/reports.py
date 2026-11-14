@@ -1,4 +1,4 @@
-"""Сводная отчётность для руководителя (ФТ-6)."""
+"""Сводная отчётность для руководителя (ФТ-7)."""
 from collections import defaultdict
 from datetime import date
 
@@ -88,7 +88,7 @@ def contracts_report():
 @bp.route('/reports/deadlines')
 @login_required
 def deadlines_report():
-    """Контроль сроков отчётности в разрезе клиентов (ФТ-4)."""
+    """Контроль сроков отчётности в разрезе клиентов (ФТ-6)."""
     if not current_user.is_admin:
         abort(403)
     today = date.today()

@@ -80,10 +80,10 @@ def fake_1c(organizations=None, contractors=None, contracts=None,
             documents=None):
     """Контекст-менеджер: подмена HTTP-запросов к «1С» (OData).
 
-    organizations — строки Catalog_Организации (клиенты реестра, ФТ-1);
+    organizations — строки Catalog_Организации (клиенты реестра, ФТ-2);
     contractors — строки Catalog_Контрагенты (справочник контрагентов);
-    contracts — строки Catalog_Договоры (договоры клиента, ФТ-5);
-    documents — строки Document_* из «1С:Документооборот» (ФТ-2)
+    contracts — строки Catalog_Договоры (договоры клиента, ФТ-3);
+    documents — строки Document_* из «1С:Документооборот» (ФТ-4)
         или словарь {имя сущности: строки} для разных видов документов.
     """
     organizations = organizations or []

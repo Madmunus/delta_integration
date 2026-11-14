@@ -40,7 +40,8 @@
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Задача</th><th>Клиент</th><th>Исполнитель</th><th>Срок</th>
-    <th>Приоритет</th><th>Статус</th><th class="text-end">Действия</th>
+    <th>Приоритет</th><th>Статус</th><th>Создан</th>
+    <th class="text-end">Действия</th>
   </tr></thead>
   <tbody>
   {% for t in tasks %}
@@ -58,6 +59,7 @@
         {% endif %}</td>
       <td>{{ t.priority_label }}</td>
       <td>{{ t.status_label }}</td>
+      <td class="text-nowrap">{{ t.created_at|dtfull }}</td>
       <td class="text-end text-nowrap">
         {% if t.status != 'done' %}
         <form class="d-inline" method="post"
@@ -76,7 +78,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="text-muted">Задач не найдено</td></tr>
+    <tr><td colspan="8" class="text-muted">Задач не найдено</td></tr>
   {% endfor %}
   </tbody>
 </table>

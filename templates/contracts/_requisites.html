@@ -1,0 +1,37 @@
+<dl class="row mb-0">
+  <dt class="col-sm-4">Номер</dt>
+  <dd class="col-sm-8">{{ contract.number }}</dd>
+  <dt class="col-sm-4">Дата договора</dt>
+  <dd class="col-sm-8">{{ contract.signed_date|dt }}</dd>
+  <dt class="col-sm-4">Клиент</dt>
+  <dd class="col-sm-8">
+    <a href="{{ url_for('clients.detail', client_id=contract.client_id) }}">{{ contract.client.name }}</a>
+  </dd>
+  <dt class="col-sm-4">Контрагент</dt>
+  <dd class="col-sm-8">
+    {% if contract.contractor %}
+      <a href="{{ url_for('contractors.detail', contractor_id=contract.contractor_id) }}">{{ contract.contractor_name }}</a>
+    {% else %}—{% endif %}
+  </dd>
+  <dt class="col-sm-4">Стоимость</dt>
+  <dd class="col-sm-8">{{ contract.amount|money }}</dd>
+  <dt class="col-sm-4">Действует с</dt>
+  <dd class="col-sm-8">{{ contract.start_date|dt if contract.start_date else '—' }}</dd>
+  <dt class="col-sm-4">Действует по</dt>
+  <dd class="col-sm-8">{{ contract.end_date|dt if contract.end_date else '—' }}</dd>
+  <dt class="col-sm-4">Статус</dt>
+  <dd class="col-sm-8">
+    <span class="badge
+      {{ 'text-bg-success' if contract.status == 'active' else 'text-bg-secondary' if contract.status == 'closed' else 'text-bg-light text-dark' }}">
+      {{ contract.status_1c or contract.status_label }}</span>
+  </dd>
+  <dt class="col-sm-4">Описание</dt>
+  <dd class="col-sm-8" style="white-space: pre-wrap;">{{ contract.description or '—' }}</dd>
+  <dt class="col-sm-4">Обработан</dt>
+  <dd class="col-sm-8">
+    <span class="badge {{ 'text-bg-success' if contract.processed else 'text-bg-secondary' }}">
+      {{ contract.processed_label }}</span>
+  </dd>
+  <dt class="col-sm-4">Дата создания</dt>
+  <dd class="col-sm-8">{{ contract.created_at|dtfull }}</dd>
+</dl>

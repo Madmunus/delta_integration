@@ -2,7 +2,7 @@
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import (BooleanField, DateField, DecimalField, IntegerField,
+from wtforms import (BooleanField, DateField, IntegerField,
                      PasswordField, SelectField, SelectMultipleField, StringField,
                      SubmitField, TextAreaField)
 from wtforms.validators import (DataRequired, Length, NumberRange,
@@ -140,18 +140,8 @@ class ClientForm(FlaskForm):
 
 
 class ContractForm(FlaskForm):
-    number = StringField('Номер договора', validators=[DataRequired(), Length(max=64)])
-    signed_date = DateField('Дата договора', validators=[DataRequired()])
-    client_id = SelectField('Клиент', coerce=int, validators=[DataRequired()])
-    contractor_id = SelectField('Контрагент', coerce=int, validators=[Optional()])
-    description = TextAreaField('Описание', validators=[Optional()])
-    amount = DecimalField('Стоимость, руб.', places=2, validators=[
-        Optional(), NumberRange(min=0)])
-    start_date = DateField('Действует с', validators=[Optional()])
-    end_date = DateField('Действует по', validators=[Optional()])
-    status = SelectField('Статус', choices=[('draft', 'Проект'),
-                                            ('active', 'Действующий'),
-                                            ('closed', 'Завершённый')])
+    """Редактирование договора: вручную меняется только признак «Обработан»."""
+    processed = BooleanField('Обработан')
     submit = SubmitField('Сохранить')
 
 

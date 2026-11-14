@@ -5,7 +5,7 @@
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Форма</th><th>Периодичность</th><th>Ближайший срок</th>
-    <th>Осталось дней</th><th>Готовность</th>
+    <th>Осталось дней</th><th>Готовность</th><th>Создан</th>
   </tr></thead>
   <tbody>
   {% for g in grid %}
@@ -29,9 +29,10 @@
                style="width: {{ pct }}%">{{ g.done }}/{{ g.total }}</div>
         </div>
       </td>
+      <td class="text-nowrap">{{ g.deadline.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="text-muted">Справочник сроков пуст</td></tr>
+    <tr><td colspan="6" class="text-muted">Справочник сроков пуст</td></tr>
   {% endfor %}
   </tbody>
 </table>

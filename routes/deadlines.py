@@ -1,4 +1,4 @@
-"""Маршруты справочника сроков сдачи отчётности (ФТ-4)."""
+"""Маршруты справочника сроков сдачи отчётности (ФТ-6)."""
 from datetime import date, timedelta
 
 from flask import (Blueprint, abort, current_app, flash, redirect,
@@ -7,7 +7,7 @@ from flask_login import current_user, login_required
 
 from engine.forms import ReportingDeadlineForm
 from engine.models import Client, ReportingDeadline, Task, db
-from services.tasks import generate_deadline_tasks
+from engine.tasks import generate_deadline_tasks
 
 bp = Blueprint('deadlines', __name__)
 
@@ -23,7 +23,7 @@ def list_deadlines():
 
 
 def generate_deadline_tasks_preview():
-    """Ближайшие сроки в разрезе клиентов для визуального контроля (ФТ-4)."""
+    """Ближайшие сроки в разрезе клиентов для визуального контроля (ФТ-6)."""
     today = date.today()
     lead = current_app.config['DEADLINE_LEAD_DAYS']
     result = []
@@ -60,7 +60,7 @@ def generate_deadline_tasks_preview():
 @bp.route('/deadlines/generate', methods=['POST'])
 @login_required
 def generate_tasks_now():
-    """Ручной запуск автогенерации задач по срокам (ФТ-3)."""
+    """Ручной запуск автогенерации задач по срокам (ФТ-5)."""
     created = generate_deadline_tasks(current_app.config['DEADLINE_LEAD_DAYS'])
     flash(f'Создано задач: {len(created)}', 'success')
     return redirect(url_for('deadlines.list_deadlines'))

@@ -24,6 +24,7 @@ class OneCSetting(db.Model):
     username = db.Column(db.String(255), nullable=False, default='')
     password = db.Column(db.String(512), nullable=False, default='')
     last_sync_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     @classmethod
     def get(cls):
@@ -35,7 +36,7 @@ class OneCSetting(db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Пользователь (ФТ-7: ролевая модель admin / employee)
+# Пользователь (ФТ-1: ролевая модель admin / employee)
 # ----------------------------------------------------------------------------
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -71,7 +72,7 @@ class User(UserMixin, db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Клиент (ФТ-1: справочник Catalog_Организации)
+# Клиент (ФТ-2: справочник Catalog_Организации)
 # ----------------------------------------------------------------------------
 class Client(db.Model):
     __tablename__ = 'clients'
@@ -87,8 +88,8 @@ class Client(db.Model):
     odata_url = db.Column(db.String(512), nullable=False, default='')
     odata_username = db.Column(db.String(255), nullable=False, default='')
     odata_password = db.Column(db.String(512), nullable=False, default='')
-    date_added = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     responsible = db.relationship('User', back_populates='clients')
     contracts = db.relationship('Contract', back_populates='client', lazy='dynamic',
@@ -115,7 +116,7 @@ class Client(db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Контрагент (ФТ-1: справочник Catalog_Контрагенты)
+# Контрагент (ФТ-2: справочник Catalog_Контрагенты)
 # ----------------------------------------------------------------------------
 class Contractor(db.Model):
     __tablename__ = 'contractors'
@@ -126,6 +127,7 @@ class Contractor(db.Model):
     inn = db.Column(db.String(12), index=True)
     kpp = db.Column(db.String(9))
     description = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
 
@@ -138,7 +140,7 @@ class Contractor(db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Договор (ФТ-5: справочник Catalog_Договоры)
+# Договор (ФТ-3: справочник Catalog_Договоры)
 # ----------------------------------------------------------------------------
 class Contract(db.Model):
     __tablename__ = 'contracts'
@@ -155,6 +157,8 @@ class Contract(db.Model):
     end_date = db.Column(db.Date)                              # СрокДействия
     status = db.Column(db.String(20), nullable=False, default='draft')  # draft | active | closed
     status_1c = db.Column(db.String(64), nullable=False, default='')   # Статус из 1С
+    processed = db.Column(db.Boolean, nullable=False, default=False)   # внутренний признак «Обработан»
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     client = db.relationship('Client', back_populates='contracts')
     contractor = db.relationship('Contractor', back_populates='contracts')
@@ -170,12 +174,40 @@ class Contract(db.Model):
             return self.contractor.display_name
         return '—'
 
+    @property
+    def processed_label(self) -> str:
+        return 'Да' if self.processed else 'Нет'
+
     def __repr__(self):
         return f'<Contract №{self.number}>'
 
 
 # ----------------------------------------------------------------------------
-# Задача (ФТ-3)
+# Документ из «1С:Документооборот» (ФТ-4)
+# ----------------------------------------------------------------------------
+class Document(db.Model):
+    __tablename__ = 'documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
+    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
+    doc_type = db.Column(db.String(255), nullable=False, default='')
+    number = db.Column(db.String(64), nullable=False, default='')
+    doc_date = db.Column(db.Date)
+    status = db.Column(db.String(64), nullable=False, default='')
+    external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:Документооборот
+    external_url = db.Column(db.String(512))             # ссылка на объект в 1С:Документооборот
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    client = db.relationship('Client', back_populates='documents')
+    contractor = db.relationship('Contractor')
+
+    def __repr__(self):
+        return f'<Document {self.doc_type} №{self.number}>'
+
+
+# ----------------------------------------------------------------------------
+# Задача (ФТ-5)
 # ----------------------------------------------------------------------------
 class Task(db.Model):
     __tablename__ = 'tasks'
@@ -231,7 +263,7 @@ class Task(db.Model):
 
 
 # ----------------------------------------------------------------------------
-# Справочник сроков сдачи отчётности (ФТ-4)
+# Справочник сроков сдачи отчётности (ФТ-6)
 # ----------------------------------------------------------------------------
 class ReportingDeadline(db.Model):
     __tablename__ = 'reporting_deadlines'
@@ -247,6 +279,7 @@ class ReportingDeadline(db.Model):
     taxpayer_category = db.Column(db.String(50), nullable=False, default='general')
     description = db.Column(db.Text, nullable=False, default='')
     is_enabled = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     tasks = db.relationship('Task', back_populates='reporting_deadline', lazy='dynamic')
 
@@ -282,24 +315,3 @@ class ReportingDeadline(db.Model):
     def __repr__(self):
         return f'<ReportingDeadline {self.code}>'
 
-
-# ----------------------------------------------------------------------------
-# Документ из «1С:Документооборот» (ФТ-2)
-# ----------------------------------------------------------------------------
-class Document(db.Model):
-    __tablename__ = 'documents'
-
-    id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
-    contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
-    doc_type = db.Column(db.String(255), nullable=False, default='')
-    number = db.Column(db.String(64), nullable=False, default='')
-    doc_date = db.Column(db.Date)
-    status = db.Column(db.String(64), nullable=False, default='')
-    external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:Документооборот
-    external_url = db.Column(db.String(512))             # ссылка на объект в 1С:Документооборот
-
-    client = db.relationship('Client', back_populates='documents')
-
-    def __repr__(self):
-        return f'<Document {self.doc_type} №{self.number}>'
