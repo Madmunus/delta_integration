@@ -4,6 +4,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request,
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
+from engine.dates import apply_created_at_range
 from engine.forms import ContractForm
 from engine.models import Client, Contract, Contractor, db
 
@@ -43,12 +44,18 @@ def list_contracts():
     if status:
         q = q.filter(Contract.status == status)
 
+    date_from = request.args.get('date_from') or ''
+    date_to = request.args.get('date_to') or ''
+    q, date_from, date_to = apply_created_at_range(
+        q, Contract.created_at, date_from, date_to)
+
     page = request.args.get('page', 1, type=int)
     pagination = q.order_by(Contract.signed_date.desc()).paginate(
         page=page, per_page=20, error_out=False)
     return render_template('contracts/list.html',
                            pagination=pagination,
-                           search=search, status=status)
+                           search=search, status=status,
+                           date_from=date_from, date_to=date_to)
 
 
 @bp.route('/contracts/<int:contract_id>')
@@ -65,6 +72,7 @@ def edit_contract(contract_id):
     form = ContractForm(obj=contract)
     if form.validate_on_submit():
         contract.processed = form.processed.data
+        contract.notes = form.notes.data or ''
         db.session.add(contract)
         db.session.commit()
         flash('Договор сохранён', 'success')

@@ -1,0 +1,32 @@
+{# Бейдж статуса документа: каждому статусу — свой цвет.
+   Статусы приходят из «1С:Документооборот» свободным текстом, поэтому
+   для известных значений задан цвет, а для остальных используется
+   нейтральный тёмный бейдж. #}
+{% macro document_status_badge(status) -%}
+  {%- set value = (status or '')|trim -%}
+  {%- if not value -%}
+    <span class="text-muted">—</span>
+  {%- else -%}
+    {%- set key = value|lower|replace('ё', 'е') -%}
+    {%- set colors = {
+      'черновик': 'text-bg-secondary',
+      'проект': 'text-bg-secondary',
+      'новый': 'text-bg-secondary',
+      'на согласовании': 'text-bg-warning',
+      'в работе': 'text-bg-warning',
+      'ожидает': 'text-bg-warning',
+      'согласован': 'text-bg-info',
+      'утвержден': 'text-bg-info',
+      'подписан': 'text-bg-info',
+      'зарегистрирован': 'text-bg-primary',
+      'проведен': 'text-bg-success',
+      'исполнен': 'text-bg-success',
+      'завершен': 'text-bg-success',
+      'оплачен': 'text-bg-success',
+      'отменен': 'text-bg-danger',
+      'отклонен': 'text-bg-danger',
+      'ошибка': 'text-bg-danger'
+    } -%}
+    <span class="badge {{ colors.get(key, 'text-bg-dark') }}">{{ value }}</span>
+  {%- endif -%}
+{%- endmacro %}

@@ -1,0 +1,18 @@
+{#- Постраничная навигация для реестров. Показывается только при >1 страницы. -#}
+{% macro render_pagination(pagination, endpoint, params={}) %}
+  {% if pagination.pages > 1 %}
+  <nav aria-label="Постраничная навигация">
+    <ul class="pagination pagination-sm mb-0">
+      {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+        {% if p %}
+          <li class="page-item {{ 'active' if p == pagination.page }}">
+            <a class="page-link" href="{{ url_for(endpoint, page=p, **params) }}">{{ p }}</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+{% endmacro %}

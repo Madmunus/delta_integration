@@ -1,11 +1,10 @@
 """Маршруты реестра клиентов и карточки клиента."""
-from datetime import datetime, time
-
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
 
+from engine.dates import apply_created_at_range
 from engine.forms import ClientForm
 from engine.models import Client, Contract, Document, Task, User, db
 from engine.sync import sync_contracts
@@ -21,24 +20,10 @@ def visible_clients_query():
     return q
 
 
-def _parse_query_date(value):
-    """Дата из параметра запроса (ISO или ДД.ММ.ГГГГ); None при ошибке."""
-    if not value:
-        return None
-    value = value.strip()
-    for fmt in ('%Y-%m-%d', '%d.%m.%Y'):
-        try:
-            return datetime.strptime(value, fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
 # Сортируемые столбцы реестра: имя параметра -> колонка/выражение
 SORTABLE_COLUMNS = {
     'name': Client.name,
     'inn': Client.inn,
-    'kpp': Client.kpp,
     'status': Client.status,
     'responsible': User.fio,
     'created_at': Client.created_at,
@@ -73,15 +58,8 @@ def list_clients():
         elif responsible.isdigit():
             q = q.filter(Client.responsible_id == int(responsible))
     # Поиск по дате создания (диапазон «с — по»)
-    d_from = _parse_query_date(date_from)
-    d_to = _parse_query_date(date_to)
-    # Поля дат текстовые: показываем в привычном формате дд.мм.гггг
-    date_from = d_from.strftime('%d.%m.%Y') if d_from else ''
-    date_to = d_to.strftime('%d.%m.%Y') if d_to else ''
-    if d_from:
-        q = q.filter(Client.created_at >= datetime.combine(d_from, time.min))
-    if d_to:
-        q = q.filter(Client.created_at <= datetime.combine(d_to, time.max))
+    q, date_from, date_to = apply_created_at_range(
+        q, Client.created_at, date_from, date_to)
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
     # и отключена (сортировка по умолчанию). По умолчанию: сначала активные,

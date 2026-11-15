@@ -1,12 +1,15 @@
 {% extends 'base.html' %}
 {% block title %}Договоры{% endblock %}
+{% from '_pagination.html' import render_pagination %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h1 class="h4 mb-0">Договоры <span class="text-muted">({{ pagination.total }})</span></h1>
+  {{ render_pagination(pagination, 'contracts.list_contracts',
+       dict(q=search, status=status, date_from=date_from, date_to=date_to)) }}
 </div>
 
 <form class="row g-2 mb-3" method="get">
-  <div class="col-12 col-md-4 col-lg-4">
+  <div class="col-12 col-md-4 col-lg-3">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
              placeholder="Поиск по таблице"
@@ -24,6 +27,7 @@
       <option value="closed" {{ 'selected' if status == 'closed' }}>Завершённые</option>
     </select>
   </div>
+  {% include '_date_range.html' %}
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
     <button class="btn btn-secondary flex-fill" title="Применить фильтр"
             aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
@@ -36,9 +40,15 @@
 <div class="table-responsive">
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
-    <th>Номер</th><th>Дата</th><th>Клиент</th><th>Контрагент</th>
-    <th class="text-end">Стоимость</th><th>Действие</th><th>Статус</th>
-    <th>Создан</th><th class="text-end">Действия</th>
+    <th>Номер</th>
+    <th>Дата</th>
+    <th>Клиент</th>
+    <th>Контрагент</th>
+    <th class="text-end">Стоимость</th>
+    <th>Срок действия</th>
+    <th>Статус</th>
+    <th>Дата создания</th>
+    <th class="text-end"></th>
   </tr></thead>
   <tbody>
   {% for c in pagination.items %}
@@ -67,24 +77,10 @@
     </tr>
   {% else %}
     <tr><td colspan="9" class="text-muted">
-      {% if search or status %}Договоры не найдены{% else %}Договоров нет{% endif %}
+      {% if search or status or date_from or date_to %}Договоры не найдены{% else %}Договоров нет{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
-
-{% if pagination.pages > 1 %}
-<nav>
-  <ul class="pagination">
-    {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
-      {% if p %}
-        <li class="page-item {{ 'active' if p == pagination.page }}">
-          <a class="page-link" href="{{ url_for('contracts.list_contracts', page=p, q=search, status=status) }}">{{ p }}</a>
-        </li>
-      {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
-    {% endfor %}
-  </ul>
-</nav>
-{% endif %}
 {% endblock %}

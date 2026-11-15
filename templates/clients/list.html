@@ -1,9 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}Клиенты{% endblock %}
+{% from '_pagination.html' import render_pagination %}
 
 {% macro sort_link(key, label) %}
   {%- set params = dict(q=search, status=status, responsible=responsible,
-                        date_from=date_from, date_to=date_to) -%}
+                        date_from=date_from, date_to=date_to,
+                        page=pagination.page) -%}
   {%- if sort == key and direction == 'asc' -%}
     {%- set href = url_for('clients.list_clients', sort=key, dir='desc', **params) -%}
     {%- set title = 'Сортировка по убыванию' -%}
@@ -23,8 +25,12 @@
 {% endmacro %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h1 class="h4 mb-0">Клиенты <span class="text-muted">({{ pagination.total }})</span></h1>
+  {{ render_pagination(pagination, 'clients.list_clients',
+       dict(q=search, status=status, responsible=responsible,
+            date_from=date_from, date_to=date_to,
+            sort=sort, dir=direction)) }}
 </div>
 
 <form class="row g-2 mb-3" method="get">
@@ -60,38 +66,7 @@
     </select>
   </div>
   {% endif %}
-  <div class="col-6 col-md-3 col-lg-2">
-    <div class="input-group position-relative">
-      <span class="input-group-text px-2">с</span>
-      <input class="form-control" type="text" name="date_from" value="{{ date_from }}"
-             placeholder="дд.мм.гггг" autocomplete="off"
-             title="Дата создания: с" aria-label="Создан с">
-      <input type="date" class="delta-date-proxy" tabindex="-1" aria-hidden="true"
-             onchange="deltaApplyDatePick(this)">
-      <button class="btn btn-outline-secondary px-2" type="button"
-              title="Выбрать дату «с» из календаря" aria-label="Выбрать дату «с» из календаря"
-              onclick="deltaOpenDatePicker(this)"><i class="fa-solid fa-calendar-days"></i></button>
-      <button class="btn btn-outline-secondary px-2" type="button"
-              title="Очистить дату «с»" aria-label="Очистить дату «с»"
-              onclick="this.form.querySelector('input[name=date_from]').value=''; this.form.querySelector('input[name=date_from]').focus();"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-  </div>
-  <div class="col-6 col-md-3 col-lg-2">
-    <div class="input-group position-relative">
-      <span class="input-group-text px-2">по</span>
-      <input class="form-control" type="text" name="date_to" value="{{ date_to }}"
-             placeholder="дд.мм.гггг" autocomplete="off"
-             title="Дата создания: по" aria-label="Создан по">
-      <input type="date" class="delta-date-proxy" tabindex="-1" aria-hidden="true"
-             onchange="deltaApplyDatePick(this)">
-      <button class="btn btn-outline-secondary px-2" type="button"
-              title="Выбрать дату «по» из календаря" aria-label="Выбрать дату «по» из календаря"
-              onclick="deltaOpenDatePicker(this)"><i class="fa-solid fa-calendar-days"></i></button>
-      <button class="btn btn-outline-secondary px-2" type="button"
-              title="Очистить дату «по»" aria-label="Очистить дату «по»"
-              onclick="this.form.querySelector('input[name=date_to]').value=''; this.form.querySelector('input[name=date_to]').focus();"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-  </div>
+  {% include '_date_range.html' %}
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
     <button class="btn btn-secondary flex-fill"><i class="fa-solid fa-magnifying-glass"></i></button>
     <a class="btn btn-outline-secondary flex-fill" href="{{ url_for('clients.list_clients') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
@@ -104,11 +79,10 @@
     <tr>
       <th>{{ sort_link('name', 'Наименование') }}</th>
       <th>{{ sort_link('inn', 'ИНН') }}</th>
-      <th>{{ sort_link('kpp', 'КПП') }}</th>
       <th>{{ sort_link('status', 'Статус') }}</th>
       <th>{{ sort_link('responsible', 'Ответственный') }}</th>
-      <th>{{ sort_link('created_at', 'Создан') }}</th>
-      <th class="text-end">Действия</th>
+      <th>{{ sort_link('created_at', 'Дата создания') }}</th>
+      <th class="text-end"></th>
     </tr>
   </thead>
   <tbody>
@@ -116,7 +90,6 @@
     <tr>
       <td><a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a></td>
       <td class="text-nowrap">{{ c.inn or '—' }}</td>
-      <td>{{ c.kpp or '—' }}</td>
       <td>
         {% if c.status == 'active' %}<span class="badge text-bg-success">активный</span>
         {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
@@ -137,70 +110,9 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="text-muted">Клиенты не найдены</td></tr>
+    <tr><td colspan="6" class="text-muted">Клиенты не найдены</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
-
-{% if pagination.pages > 1 %}
-<nav>
-  <ul class="pagination">
-    {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
-      {% if p %}
-        <li class="page-item {{ 'active' if p == pagination.page }}">
-          <a class="page-link" href="{{ url_for('clients.list_clients', page=p, q=search, status=status, responsible=responsible, date_from=date_from, date_to=date_to, sort=sort, dir=direction) }}">{{ p }}</a>
-        </li>
-      {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
-    {% endfor %}
-  </ul>
-</nav>
-{% endif %}
-
-<style>
-  .delta-date-proxy {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    border: 0;
-    opacity: 0;
-    pointer-events: none;
-  }
-</style>
-<script>
-(function () {
-  function parseRuDate(value) {
-    var m = (value || '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-    if (!m) return '';
-    return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
-  }
-
-  window.deltaOpenDatePicker = function (btn) {
-    var group = btn.closest('.input-group');
-    var text = group.querySelector('input[type=text]');
-    var proxy = group.querySelector('.delta-date-proxy');
-    proxy.value = parseRuDate(text.value);
-    if (typeof proxy.showPicker === 'function') {
-      try {
-        proxy.showPicker();
-        return;
-      } catch (e) { /* fallback ниже */ }
-    }
-    proxy.style.pointerEvents = 'auto';
-    proxy.focus();
-    proxy.click();
-  };
-
-  window.deltaApplyDatePick = function (proxy) {
-    if (!proxy.value) return;
-    var parts = proxy.value.split('-');
-    var text = proxy.closest('.input-group').querySelector('input[type=text]');
-    text.value = parts[2] + '.' + parts[1] + '.' + parts[0];
-    text.focus();
-  };
-})();
-</script>
 {% endblock %}

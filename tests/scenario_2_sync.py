@@ -5,6 +5,8 @@
 Catalog_Контрагенты. Проверяется появление записей, признак удаления
 (DeletionMark) и отсутствие дублирования при повторном запуске.
 """
+import re
+
 from engine.models import Client, Contractor, OneCSetting, db
 from engine.sync import sync_clients
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
@@ -35,14 +37,17 @@ ORGANIZATIONS = [
      'ИНН': '7704444444', 'DeletionMark': True},
 ]
 
-# Catalog_Контрагенты: Ref_Key, НаименованиеПолное, ИНН, КПП, Description.
+# Catalog_Контрагенты: Ref_Key, НаименованиеПолное, ИНН, КПП, DeletionMark.
+# Description в 1С есть, но система его больше не запрашивает и не сохраняет.
 CONTRACTORS = [
     {'Ref_Key': 'aaaaaaaa-1111-1111-1111-111111111111',
      'НаименованиеПолное': 'ООО «Альфа-Тест»', 'ИНН': '7701111111',
-     'КПП': '770101001', 'Description': 'Основной контрагент'},
+     'КПП': '770101001', 'Description': 'Основной контрагент',
+     'DeletionMark': False},
     {'Ref_Key': 'bbbbbbbb-2222-2222-2222-222222222222',
      'НаименованиеПолное': 'ООО «Бета-Тест»', 'ИНН': '7702222222',
-     'КПП': '770201001', 'Description': ''},
+     'КПП': '770201001', 'Description': '',
+     'DeletionMark': True},
 ]
 
 
@@ -95,6 +100,8 @@ def run():
         contractors_total = Contractor.query.count()
         alpha_contractor = Contractor.query.filter_by(
             inn='7701111111').first()
+        beta_contractor = Contractor.query.filter_by(
+            inn='7702222222').first()
     steps.check(contractors_total == 2,
                 'Контрагенты перенесены в справочник',
                 '2 контрагента из Catalog_Контрагенты',
@@ -102,12 +109,23 @@ def run():
     steps.check(alpha_contractor is not None
                 and alpha_contractor.full_name == 'ООО «Альфа-Тест»'
                 and alpha_contractor.kpp == '770101001'
-                and alpha_contractor.description == 'Основной контрагент',
+                and alpha_contractor.notes == '',
                 'Реквизиты контрагента перенесены из «1С»',
-                'наименование полное, ИНН, КПП и описание соответствуют 1С',
+                'наименование полное, ИНН и КПП соответствуют 1С; '
+                'поле Description не загружается, заметки остаются пустыми',
                 (f'{alpha_contractor.full_name}, ИНН {alpha_contractor.inn}, '
-                 f'КПП {alpha_contractor.kpp}'
+                 f'КПП {alpha_contractor.kpp}, заметки «{alpha_contractor.notes}»'
                  if alpha_contractor else 'контрагент не найден'))
+    steps.check(alpha_contractor is not None and beta_contractor is not None
+                and alpha_contractor.status == 'active'
+                and beta_contractor.status == 'archived',
+                'DeletionMark = 1 переводит контрагента в архив',
+                'контрагент без отметки получает статус «активный», '
+                'помеченный на удаление — «архивный»',
+                (f'статусы: {alpha_contractor.status}, '
+                 f'{beta_contractor.status}'
+                 if alpha_contractor and beta_contractor
+                 else 'контрагенты не найдены'))
 
     # --- Шаг 4. Клиенты видны на странице реестра --------------------
     html = web.get('/clients').get_data(as_text=True)
@@ -116,12 +134,18 @@ def run():
                 'клиенты из «1С» видны на странице «Клиенты»',
                 'клиенты отображаются' if 'Альфа-Тест' in html
                 else 'клиенты не отображаются')
+    steps.check('>КПП</th>' not in html and 'КПП' in html,
+                'В реестре клиентов нет столбца КПП, но поиск по КПП сохранён',
+                'столбец КПП убран из таблицы, подсказка поиска упоминает КПП',
+                'столбец убран, поиск по КПП сохранён'
+                if '>КПП</th>' not in html and 'КПП' in html
+                else 'столбец или поиск оформлены неверно')
 
     # --- Шаг 5. Контрагенты на отдельной странице --------------------
     contractors_html = web.get('/contractors').get_data(as_text=True)
     bases_html = web.get('/bases').get_data(as_text=True)
     steps.check('Альфа-Тест' in contractors_html
-                and 'Наименование полное' in contractors_html
+                and 'Наименование' in contractors_html
                 and 'href="/contractors"' in html,
                 'Контрагенты отображаются на отдельной странице',
                 'таблица контрагентов доступна в разделе «Контрагенты», '
@@ -129,10 +153,10 @@ def run():
                 'страница контрагентов и пункт меню доступны'
                 if 'Альфа-Тест' in contractors_html
                 else 'контрагенты не отображаются')
-    steps.check('Наименование полное' not in bases_html,
+    steps.check('Наименование' not in bases_html,
                 'Таблица контрагентов убрана со страницы «1С База»',
                 'на странице настройки остаётся только счётчик контрагентов',
-                'таблица перенесена' if 'Наименование полное' not in bases_html
+                'таблица перенесена' if 'Наименование' not in bases_html
                 else 'таблица всё ещё на странице «1С База»')
 
     # --- Шаг 5.1. Поиск по таблице контрагентов ------------------------
@@ -148,31 +172,50 @@ def run():
     steps.check(filter_ok,
                 'В реестре контрагентов работает поиск по таблице',
                 'поле «Поиск по таблице» с кнопками применения, очистки и '
-                'сброса; фильтр по наименованию, ИНН, КПП и описанию',
+                'сброса; фильтр по наименованию, ИНН, КПП и заметкам',
                 'найдена только «Альфа-Тест»' if filter_ok
                 else 'фильтр не работает')
+    steps.check('>КПП</th>' not in contractors_html
+                and 'name="date_from"' in contractors_html
+                and 'name="date_to"' in contractors_html,
+                'В реестре контрагентов нет столбца КПП и есть фильтр по дате',
+                'столбец КПП убран, добавлены поля «Дата создания: с / по»',
+                'столбец убран, фильтр по дате присутствует'
+                if 'name="date_from"' in contractors_html
+                else 'фильтр по дате отсутствует')
+    statuses_ok = ('<th>Статус</th>' in contractors_html
+                   and '<span class="badge text-bg-success">активный</span>'
+                   in contractors_html
+                   and '<span class="badge text-bg-secondary">архивный</span>'
+                   in contractors_html)
+    steps.check(statuses_ok,
+                'В реестре контрагентов выводится статус из DeletionMark',
+                'столбец «Статус»: «активный» — зелёный бейдж, '
+                '«архивный» — серый',
+                'статусы отображаются бейджами' if statuses_ok
+                else 'столбец «Статус» или бейджи отсутствуют')
 
     # --- Шаг 6. Карточка контрагента ----------------------------------
     with app.app_context():
         contractor_id = Contractor.query.filter_by(inn='7701111111').first().id
     contractor_html = web.get(f'/contractors/{contractor_id}').get_data(as_text=True)
-    requisites = ('Ключ 1С', 'Наименование полное', 'ИНН', 'КПП', 'Описание')
+    requisites = ('Ключ 1С', 'Наименование', 'ИНН', 'КПП', 'Статус', 'Заметки')
     positions = [contractor_html.find(f'>{label}<') for label in requisites]
     steps.check(
         all(value in contractor_html for value in (
             'ООО «Альфа-Тест»', '7701111111', '770101001',
-            'Основной контрагент', ALPHA_CONTRACTOR_KEY))
+            ALPHA_CONTRACTOR_KEY))
         and all(pos >= 0 for pos in positions)
         and positions == sorted(positions),
         'Карточка контрагента содержит все реквизиты',
-        'Ключ 1С, наименование полное, ИНН, КПП, описание — в заданном порядке',
+        'Ключ 1С, наименование, ИНН, КПП, статус и заметки — в заданном порядке',
         'реквизиты отображаются в нужном порядке'
         if positions == sorted(positions) else f'порядок нарушен: {positions}')
     tabs_ok = all(f'data-bs-target="#tab-{tab}"' in contractor_html
                   for tab in ('requisites', 'contracts', 'docs'))
     steps.check(tabs_ok and '<p class="text-muted mb-0">' not in contractor_html,
                 'Разделы карточки контрагента оформлены вкладками',
-                'вкладки «Реквизиты», «Договоры», «Документы»; строки под '
+                'вкладки «Данные», «Договоры», «Документы»; строки под '
                 'заголовком нет',
                 'вкладки и заголовок оформлены корректно'
                 if tabs_ok else 'вкладки отсутствуют')
@@ -181,6 +224,40 @@ def run():
                 'наименование в списке — ссылка на карточку контрагента',
                 'ссылка на карточку есть' if f'href="/contractors/{contractor_id}"'
                 in contractors_html else 'ссылка на карточку отсутствует')
+    actions_ok = ('<th class="text-end"></th>' in contractors_html
+                  and f'/contractors/{contractor_id}/edit' in contractors_html
+                  and 'fa-pencil' in contractors_html)
+    steps.check(actions_ok,
+                'В реестре контрагентов есть кнопка-карандаш в последнем столбце',
+                'в конце таблицы — столбец с пустым заголовком и кнопкой '
+                'перехода в карточку редактирования контрагента',
+                'столбец и кнопка присутствуют' if actions_ok
+                else 'столбец с карандашом отсутствует')
+
+    # --- Шаг 6.2. Карточка редактирования контрагента ------------------
+    edit_html = web.get(f'/contractors/{contractor_id}/edit').get_data(as_text=True)
+    edit_form_ok = ('Просмотр' in edit_html
+                    and 'name="notes"' in edit_html
+                    and 'Редактируемые поля' in edit_html
+                    and '<span class="badge text-bg-success">активный</span>'
+                    in edit_html)
+    steps.check(edit_form_ok,
+                'Карточка редактирования контрагента содержит поле «Заметки»',
+                'в заголовке — «Просмотр», в данных — статус, '
+                'в редактируемых полях — только «Заметки»',
+                'карточка редактирования оформлена корректно'
+                if edit_form_ok else 'поле «Заметки» или статус отсутствуют')
+    web.post(f'/contractors/{contractor_id}/edit',
+             data={'notes': 'Проверка заметок контрагента'},
+             follow_redirects=True)
+    with app.app_context():
+        saved_notes = db.session.get(Contractor, contractor_id).notes
+    saved_html = web.get(f'/contractors/{contractor_id}').get_data(as_text=True)
+    steps.check(saved_notes == 'Проверка заметок контрагента'
+                and 'Проверка заметок контрагента' in saved_html,
+                'Заметки контрагента сохраняются из карточки редактирования',
+                'после сохранения заметки видны в карточке контрагента',
+                f'в базе: «{saved_notes}»')
 
     # --- Шаг 6.1. Пагинация реестра контрагентов -----------------------
     with app.app_context():
@@ -189,7 +266,7 @@ def run():
                 external_ref=f'ffffffff-0000-0000-0000-{i:012d}',
                 full_name=f'ООО «Пагинация-{i:02d}»',
                 inn=f'7799{i:08d}', kpp=f'7799{i:05d}',
-                description='Демо-контрагент для проверки пагинации'))
+                notes='Демо-контрагент для проверки пагинации'))
         db.session.commit()
         contractors_count = Contractor.query.count()
 
@@ -211,13 +288,23 @@ def run():
     edit_html = web.get(f'/clients/{alpha.id}/edit').get_data(as_text=True)
     read_only_ok = all(value in edit_html for value in (
         alpha.name, alpha.inn, alpha.kpp or '—', ALPHA_KEY,
-        'Реквизиты', 'Редактируемые поля'))
+        'Данные', 'Редактируемые поля'))
     steps.check(
         read_only_ok,
         'В карточке редактирования показаны нередактируемые поля',
         'наименование, ИНН, КПП, Ref_Key и статус доступны только для чтения',
         'информационные поля отображаются'
         if read_only_ok else 'информационные поля отсутствуют')
+    header_ok = ('Просмотр' in edit_html
+                 and f'href="/clients/{alpha.id}"' in edit_html
+                 and '+ Задача' in edit_html
+                 and 'Загрузить договоры из 1С' in edit_html)
+    steps.check(header_ok,
+                'В заголовке редактирования клиента есть кнопки карточки',
+                'кнопка «Просмотр» ведёт в карточку, есть «+ Задача» '
+                'и «Загрузить договоры из 1С»',
+                'кнопки заголовка присутствуют' if header_ok
+                else 'кнопки заголовка отсутствуют')
     steps.check('badge text-bg-info' not in html,
                 'На странице списка клиентов нет badge «1С»',
                 'бейдж источника удалён из реестра клиентов',
@@ -227,7 +314,7 @@ def run():
     # --- Шаг 8. Карточка клиента ---------------------------------------
     card_html = web.get(f'/clients/{alpha.id}').get_data(as_text=True)
     labels = ('Ключ 1С', 'Наименование', 'ИНН', 'КПП', 'Статус',
-              'Дата создания', 'Ответственный', 'Заметки',
+              'Дата создания', 'Дата обновления', 'Ответственный', 'Заметки',
               'URL OData (1С:Бухгалтерия)', 'Пользователь', 'Пароль')
     positions = [card_html.find(f'>{label}<') for label in labels]
     order_ok = (all(pos >= 0 for pos in positions)
@@ -235,7 +322,8 @@ def run():
     steps.check(order_ok,
                 'В карточке клиента реквизиты идут в заданном порядке',
                 'Ключ 1С, наименование, ИНН, КПП, статус, дата создания, '
-                'ответственный, заметки, URL OData, пользователь, пароль',
+                'дата обновления, ответственный, заметки, URL OData, '
+                'пользователь, пароль',
                 'порядок реквизитов соблюдён' if order_ok
                 else f'порядок нарушен: {positions}')
     header_ok = ('>1С</span>' not in card_html
@@ -263,6 +351,22 @@ def run():
                 f"контрагентов {stats['contractors_created']}; "
                 f'в реестре {total_after} клиентов, '
                 f'{contractors_after} контрагентов')
+
+    # --- Шаг 10. Сортировка не сбрасывает страницу пагинации ----------
+    with app.app_context():
+        for i in range(1, 25):
+            db.session.add(Client(name=f'ООО «Сортировка-{i:02d}»',
+                                  inn=f'7788{i:08d}', status='active'))
+        db.session.commit()
+    page2_html = web.get('/clients', query_string={'page': 2}).get_data(as_text=True)
+    sort_hrefs = re.findall(r'href="([^"]*sort=name[^"]*)"', page2_html)
+    kept = bool(sort_hrefs) and all('page=2' in href for href in sort_hrefs)
+    steps.check(kept,
+                'Сортировка в реестре клиентов не сбрасывает страницу',
+                'ссылки сортировки на второй странице сохраняют параметр page=2',
+                (f'ссылок сортировки: {len(sort_hrefs)}, '
+                 f'с page=2: {sum("page=2" in href for href in sort_hrefs)}')
+                if sort_hrefs else 'ссылки сортировки не найдены')
 
     conclusion = ('Синхронизация клиентов и контрагентов выполнена, '
                   'дублирование отсутствует.'

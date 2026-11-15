@@ -25,6 +25,8 @@ class OneCSetting(db.Model):
     password = db.Column(db.String(512), nullable=False, default='')
     last_sync_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     @classmethod
     def get(cls):
@@ -48,6 +50,8 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False, default='employee')  # admin | employee
     is_active_flag = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     clients = db.relationship('Client', back_populates='responsible', lazy='dynamic')
     tasks = db.relationship('Task', back_populates='assignee', lazy='dynamic')
@@ -90,6 +94,8 @@ class Client(db.Model):
     odata_password = db.Column(db.String(512), nullable=False, default='')
     notes = db.Column(db.Text, nullable=False, default='')
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     responsible = db.relationship('User', back_populates='clients')
     contracts = db.relationship('Contract', back_populates='client', lazy='dynamic',
@@ -126,14 +132,21 @@ class Contractor(db.Model):
     full_name = db.Column(db.String(512), nullable=False, default='')  # НаименованиеПолное
     inn = db.Column(db.String(12), index=True)
     kpp = db.Column(db.String(9))
-    description = db.Column(db.Text, nullable=False, default='')
+    status = db.Column(db.String(20), nullable=False, default='active')  # active | archived
+    notes = db.Column(db.Text, nullable=False, default='')  # заметки пользователя
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     contracts = db.relationship('Contract', back_populates='contractor', lazy='dynamic')
 
     @property
+    def is_active(self) -> bool:
+        return self.status == 'active'
+
+    @property
     def display_name(self) -> str:
-        return self.full_name or self.description or self.external_ref or '—'
+        return self.full_name or self.external_ref or '—'
 
     def __repr__(self):
         return f'<Contractor {self.full_name or self.external_ref}>'
@@ -152,6 +165,7 @@ class Contract(db.Model):
     contractor_id = db.Column(db.Integer, db.ForeignKey('contractors.id'), index=True)
     external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key
     description = db.Column(db.Text, nullable=False, default='')  # Description из 1С
+    notes = db.Column(db.Text, nullable=False, default='')        # заметки пользователя
     amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Сумма
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)                              # СрокДействия
@@ -159,6 +173,8 @@ class Contract(db.Model):
     status_1c = db.Column(db.String(64), nullable=False, default='')   # Статус из 1С
     processed = db.Column(db.Boolean, nullable=False, default=False)   # внутренний признак «Обработан»
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     client = db.relationship('Client', back_populates='contracts')
     contractor = db.relationship('Contractor', back_populates='contracts')
@@ -195,12 +211,20 @@ class Document(db.Model):
     number = db.Column(db.String(64), nullable=False, default='')
     doc_date = db.Column(db.Date)
     status = db.Column(db.String(64), nullable=False, default='')
+    processed = db.Column(db.Boolean, nullable=False, default=False)  # внутренний признак «Обработан»
+    notes = db.Column(db.Text, nullable=False, default='')  # заметки пользователя
     external_ref = db.Column(db.String(64), index=True)  # GUID объекта в 1С:Документооборот
     external_url = db.Column(db.String(512))             # ссылка на объект в 1С:Документооборот
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     client = db.relationship('Client', back_populates='documents')
     contractor = db.relationship('Contractor')
+
+    @property
+    def processed_label(self) -> str:
+        return 'Да' if self.processed else 'Нет'
 
     def __repr__(self):
         return f'<Document {self.doc_type} №{self.number}>'
@@ -280,6 +304,8 @@ class ReportingDeadline(db.Model):
     description = db.Column(db.Text, nullable=False, default='')
     is_enabled = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
 
     tasks = db.relationship('Task', back_populates='reporting_deadline', lazy='dynamic')
 

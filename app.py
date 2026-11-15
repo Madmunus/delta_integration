@@ -54,6 +54,26 @@ def _ensure_schema():
                 "UPDATE clients SET created_at = created_at || ' 00:00:00' "
                 'WHERE created_at IS NOT NULL AND length(created_at) = 10'))
 
+        # contractors.description → contractors.notes (заметки пользователя)
+        if 'contractors' in tables:
+            contractor_columns = columns_of('contractors')
+            if 'description' in contractor_columns and 'notes' not in contractor_columns:
+                connection.execute(text(
+                    'ALTER TABLE contractors '
+                    'RENAME COLUMN description TO notes'))
+            # Статус контрагента вычисляется из DeletionMark (как у клиентов)
+            if 'status' not in contractor_columns:
+                connection.execute(text(
+                    'ALTER TABLE contractors ADD COLUMN status '
+                    "VARCHAR(20) NOT NULL DEFAULT 'active'"))
+
+        # notes — внутренние заметки пользователя у договоров и документов
+        for table in ('contracts', 'documents'):
+            if table in tables and 'notes' not in columns_of(table):
+                connection.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN notes "
+                    "TEXT NOT NULL DEFAULT ''"))
+
         # created_at во всех остальных таблицах моделей
         for table in ('onec_settings', 'contractors', 'contracts',
                       'documents', 'reporting_deadlines'):
@@ -72,6 +92,28 @@ def _ensure_schema():
             connection.execute(text(
                 'ALTER TABLE contracts ADD COLUMN processed '
                 'BOOLEAN NOT NULL DEFAULT FALSE'))
+
+        # Внутренний признак документа «Обработан»
+        if 'documents' in tables and 'processed' not in columns_of('documents'):
+            connection.execute(text(
+                'ALTER TABLE documents ADD COLUMN processed '
+                'BOOLEAN NOT NULL DEFAULT FALSE'))
+
+        # updated_at во всех таблицах моделей (как у tasks).
+        # Существующим записям выставляем дату создания.
+        for table in ('users', 'clients', 'contractors', 'contracts',
+                      'documents', 'onec_settings',
+                      'reporting_deadlines', 'tasks'):
+            if table not in tables:
+                continue
+            if 'updated_at' not in columns_of(table):
+                connection.execute(text(
+                    f'ALTER TABLE {table} ADD COLUMN updated_at '
+                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
+            connection.execute(text(
+                f'UPDATE {table} SET updated_at = created_at '
+                "WHERE updated_at = '1970-01-01 00:00:00' "
+                'AND created_at IS NOT NULL'))
 
 
 def create_app(config_name=None):

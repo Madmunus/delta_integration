@@ -158,11 +158,13 @@ class ODataClient:
     def get_contractors(self) -> List[Dict[str, Any]]:
         """Контрагенты: справочник Catalog_Контрагенты главной базы 1С.
 
-        Поля: Ref_Key, НаименованиеПолное, ИНН, КПП, Description.
+        Поля: Ref_Key, НаименованиеПолное, ИНН, КПП, DeletionMark
+        (0 — активный, 1 — неактивный).
         """
         return self.query(
             'Catalog_Контрагенты',
-            select=['Ref_Key', 'НаименованиеПолное', 'ИНН', 'КПП', 'Description'],
+            select=['Ref_Key', 'НаименованиеПолное', 'ИНН', 'КПП',
+                    'DeletionMark'],
             order_by='НаименованиеПолное',
         )
 

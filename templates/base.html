@@ -80,5 +80,38 @@
 </main>
 
 <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script>
+(function () {
+  function parseRuDate(value) {
+    var m = (value || '').trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (!m) return '';
+    return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  }
+
+  window.deltaOpenDatePicker = function (btn) {
+    var group = btn.closest('.input-group');
+    var text = group.querySelector('input[type=text]');
+    var proxy = group.querySelector('.delta-date-proxy');
+    proxy.value = parseRuDate(text.value);
+    if (typeof proxy.showPicker === 'function') {
+      try {
+        proxy.showPicker();
+        return;
+      } catch (e) { /* fallback ниже */ }
+    }
+    proxy.style.pointerEvents = 'auto';
+    proxy.focus();
+    proxy.click();
+  };
+
+  window.deltaApplyDatePick = function (proxy) {
+    if (!proxy.value) return;
+    var parts = proxy.value.split('-');
+    var text = proxy.closest('.input-group').querySelector('input[type=text]');
+    text.value = parts[2] + '.' + parts[1] + '.' + parts[0];
+    text.focus();
+  };
+})();
+</script>
 </body>
 </html>

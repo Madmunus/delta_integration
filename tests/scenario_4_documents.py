@@ -6,6 +6,7 @@
 без префикса Document_. Результат: документы отображаются в карточке
 клиента с корректными реквизитами.
 """
+import re
 from datetime import date
 
 from engine.models import Client, Contractor, Document, OneCSetting, db
@@ -65,7 +66,7 @@ def run():
             status='active', external_ref=ALPHA_KEY))
         db.session.add(Contractor(
             full_name='ООО «Ромашка»', inn='7701234567', kpp='770101001',
-            description='Розничная торговля', external_ref=BETA_KEY))
+            notes='Розничная торговля', external_ref=BETA_KEY))
         db.session.commit()
 
     # --- Шаг 1. Вид документа вычисляется из имени сущности -----------------
@@ -185,6 +186,114 @@ def run():
                 'поиск по номеру оставляет только найденный документ',
                 'найден только СЧ-201' if 'СЧ-201' in search_html
                 else 'поиск не работает')
+    steps.check('Дата создания' in registry_html and 'Создан' not in registry_html,
+                'В реестре документов столбец называется «Дата создания»',
+                'заголовок столбца — «Дата создания»',
+                'заголовок корректен' if 'Дата создания' in registry_html
+                else 'заголовок не переименован')
+    link_in_type = re.search(
+        r'<td><a href="/documents/\d+">[^<]+</a></td>\s*<td>', registry_html)
+    steps.check('name="date_from"' in registry_html
+                and 'name="date_to"' in registry_html
+                and link_in_type is not None,
+                'В реестре документов есть фильтр по дате и ссылка в «Виде документа»',
+                'поля «Дата создания: с / по»; ссылка на карточку — в столбце '
+                '«Вид документа», а не в «Номере»',
+                'фильтр и ссылка оформлены корректно'
+                if link_in_type is not None
+                else 'фильтр или ссылка оформлены неверно')
+    badge_styles = {
+        'Проведён': 'text-bg-success',
+        'Зарегистрирован': 'text-bg-primary',
+        'Черновик': 'text-bg-secondary',
+    }
+    badges_ok = all(f'class="badge {css}">{status}</span>' in registry_html
+                    for status, css in badge_styles.items())
+    steps.check(badges_ok,
+                'Каждый статус документа выводится своим бейджем',
+                '«Проведён» — зелёный, «Зарегистрирован» — синий, '
+                '«Черновик» — серый',
+                'бейджи статусов отображаются'
+                if badges_ok else 'бейджи статусов отсутствуют или неверны')
+    with app.app_context():
+        sales_id_for_edit = Document.query.filter_by(number='РТ-101').first().id
+    actions_ok = ('<th></th>' in registry_html
+                  and f'/documents/{sales_id_for_edit}/edit' in registry_html
+                  and 'fa-pencil' in registry_html
+                  and 'Редактировать документ' in registry_html)
+    steps.check(actions_ok,
+                'В реестре документов есть столбец с кнопкой-карандашом',
+                'в конце таблицы — столбец с пустым заголовком и кнопкой '
+                'перехода в карточку редактирования документа',
+                'столбец и кнопка присутствуют' if actions_ok
+                else 'столбец с карандашом отсутствует')
+
+    # --- Шаг 4.2. Карточка документа с датами создания и обновления --------
+    with app.app_context():
+        sales_id = Document.query.filter_by(number='РТ-101').first().id
+    doc_html = web.get(f'/documents/{sales_id}').get_data(as_text=True)
+    has_both_dates = ('Дата создания' in doc_html
+                      and 'Дата обновления' in doc_html
+                      and re.search(r'\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}',
+                                    doc_html) is not None)
+    steps.check(has_both_dates and 'РТ-101' in doc_html,
+                'В карточке документа выводятся дата создания и дата обновления',
+                'карточка открывается из реестра и содержит обе даты '
+                'в формате дд.мм.гггг чч:мм:сс',
+                'обе даты отображаются' if has_both_dates
+                else 'даты в карточке отсутствуют')
+    detail_badge_ok = ('class="badge text-bg-success">Проведён</span>'
+                       in doc_html)
+    steps.check(detail_badge_ok,
+                'В карточке документа статус выводится бейджем',
+                'статус «Проведён» — зелёный бейдж',
+                'бейдж статуса отображается' if detail_badge_ok
+                else 'бейдж статуса отсутствует')
+    key_pos = doc_html.find('>Ключ 1С<')
+    type_pos = doc_html.find('>Вид документа<')
+    steps.check(0 <= key_pos < type_pos,
+                'В карточке документа «Ключ 1С» выводится первым',
+                'поле «Ключ 1С» стоит перед видом документа',
+                '«Ключ 1С» — первое поле' if 0 <= key_pos < type_pos
+                else f'порядок полей нарушен: Ключ 1С={key_pos}, '
+                     f'Вид документа={type_pos}')
+
+    # --- Шаг 4.3. Карточка редактирования документа ------------------------
+    edit_html = web.get(f'/documents/{sales_id}/edit').get_data(as_text=True)
+    edit_form_ok = ('Просмотр' in edit_html
+                    and 'name="notes"' in edit_html
+                    and 'name="processed"' in edit_html
+                    and 'Редактируемые поля' in edit_html
+                    and 'РТ-101' in edit_html)
+    steps.check(edit_form_ok,
+                'Карточка редактирования документа содержит «Обработан» и «Заметки»',
+                'в заголовке — «Просмотр», в редактируемых полях — «Обработан» '
+                'и «Заметки»',
+                'карточка редактирования оформлена корректно'
+                if edit_form_ok else 'поля «Обработан» или «Заметки» отсутствуют')
+    data_block = edit_html.split('>Данные<', 1)[-1].split('>Редактируемые поля<', 1)[0]
+    data_ok = ('Обработан' not in data_block and 'Заметки' not in data_block)
+    steps.check(data_ok,
+                'В блоке «Данные» карточки редактирования документа нет '
+                'внутренних полей',
+                '«Обработан» и «Заметки» выводятся только в редактируемых полях',
+                'внутренние поля в «Данных» отсутствуют' if data_ok
+                else 'в «Данных» остались «Обработан» или «Заметки»')
+    web.post(f'/documents/{sales_id}/edit',
+             data={'processed': 'y', 'notes': 'Проверка заметок документа'},
+             follow_redirects=True)
+    with app.app_context():
+        saved = db.session.get(Document, sales_id)
+        saved_notes = saved.notes
+        saved_processed = saved.processed
+    saved_doc_html = web.get(f'/documents/{sales_id}').get_data(as_text=True)
+    steps.check(saved_notes == 'Проверка заметок документа'
+                and saved_processed is True
+                and 'Проверка заметок документа' in saved_doc_html
+                and '>Обработан<' in saved_doc_html,
+                '«Обработан» и заметки документа сохраняются из карточки',
+                'после сохранения «Обработан» = Да, заметки видны в карточке',
+                f'в базе: Обработан={saved_processed}, заметки «{saved_notes}»')
 
     # --- Шаг 5. Повторная загрузка не создаёт дублей -----------------------
     with app.app_context():
@@ -192,10 +301,18 @@ def run():
         with fake_1c(documents=DOCUMENTS):
             sync_documents(setting, entities=ENTITIES)
         total = Document.query.count()
+        after_sync = db.session.get(Document, sales_id)
+        internal_kept = (after_sync.processed is True
+                         and after_sync.notes == 'Проверка заметок документа')
     steps.check(total == 3,
                 'Повторная загрузка не дублирует документы',
                 'в карточке по-прежнему 3 документа',
                 f'всего документов: {total}')
+    steps.check(internal_kept,
+                'Повторная загрузка сохраняет «Обработан» и заметки',
+                'внутренние поля пользователя синхронизация не перезаписывает',
+                f'Обработан={after_sync.processed}, '
+                f'заметки «{after_sync.notes}»')
 
     # --- Шаг 6. Ссылка на объект в 1С заполняется при загрузке -------------
     with app.app_context():
@@ -210,11 +327,27 @@ def run():
         external_url or 'ссылка не заполнена')
 
     registry_html = web.get('/documents').get_data(as_text=True)
-    link_shown = bool(external_url) and f'href="{external_url}"' in registry_html
+    action_cells = re.findall(
+        r'<td class="text-end text-nowrap">(.*?)</td>', registry_html, re.S)
+    cell_html = next(
+        (cell for cell in action_cells if f'href="{external_url}"' in cell), '')
+    one_c_pos = cell_html.find('>1С</a>')
+    pencil_pos = cell_html.find('fa-pencil')
+    link_shown = (bool(external_url) and bool(cell_html)
+                  and 'btn btn-sm btn-primary' in cell_html
+                  and 0 <= one_c_pos < pencil_pos)
     steps.check(link_shown,
-                'Ссылка на документ отображается в реестре',
-                'в столбце «Ссылка» есть гиперссылка на объект 1С',
-                'ссылка отображается' if link_shown else 'ссылка отсутствует')
+                'Ссылка на документ выводится кнопкой «1С» в последнем столбце',
+                'в столбце действий перед карандашом — синяя кнопка «1С» '
+                'со ссылкой на объект в 1С',
+                'кнопка «1С» отображается' if link_shown
+                else 'кнопка «1С» отсутствует или стоит не перед карандашом')
+    steps.check('<th>Ссылка</th>' not in registry_html,
+                'В реестре документов нет отдельного столбца «Ссылка»',
+                'ссылка на 1С перенесена в столбец действий',
+                'столбец «Ссылка» убран'
+                if '<th>Ссылка</th>' not in registry_html
+                else 'столбец «Ссылка» остался')
 
     # --- Шаг 7. Ручная синхронизация документов из интерфейса -------------
     bases_html = web.get('/bases').get_data(as_text=True)

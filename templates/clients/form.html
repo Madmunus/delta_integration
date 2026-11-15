@@ -1,11 +1,26 @@
 {% extends 'base.html' %}
 {% block title %}Редактирование клиента{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">Клиент {{ client.name }}</h1>
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">Клиент {{ client.name }}</h1>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-primary btn-sm"
+       href="{{ url_for('clients.detail', client_id=client.id) }}">Просмотр</a>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ url_for('tasks.edit_task') }}?client={{ client.id }}">+ Задача</a>
+    <form method="post"
+          action="{{ url_for('clients.sync_client_contracts', client_id=client.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-success btn-sm">Загрузить договоры из 1С</button>
+    </form>
+  </div>
+</div>
 
 <div class="card mb-3" style="max-width: 760px;">
   <div class="card-body">
-    <h2 class="h6 mb-3">Реквизиты</h2>
+    <h2 class="h6 mb-3">Данные</h2>
     <dl class="row mb-0">
       <dt class="col-sm-4">Ключ 1С</dt>
       <dd class="col-sm-8"><code>{{ client.external_ref or '—' }}</code></dd>
@@ -22,6 +37,8 @@
       </dd>
       <dt class="col-sm-4">Дата создания</dt>
       <dd class="col-sm-8">{{ client.created_at|dtfull }}</dd>
+      <dt class="col-sm-4">Дата обновления</dt>
+      <dd class="col-sm-8">{{ client.updated_at|dtfull }}</dd>
     </dl>
   </div>
 </div>
@@ -66,8 +83,6 @@
 
       <div class="mt-3">
         {{ form.submit(class='btn btn-primary') }}
-        <a class="btn btn-outline-secondary"
-           href="{{ url_for('clients.detail', client_id=client.id) }}">Отмена</a>
       </div>
     </form>
   </div>

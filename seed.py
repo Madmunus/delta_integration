@@ -16,6 +16,7 @@
 демо-данными и обновляет пароли демо-пользователей, не создавая дублей.
 """
 from datetime import date, datetime, timedelta
+from urllib.parse import quote
 
 from app import app
 from engine.models import (Client, Contract, Contractor, Document,
@@ -110,7 +111,7 @@ CLIENTS = [
 ]
 
 # Контрагенты из Catalog_Контрагенты главной базы 1С:
-# (Ref_Key, НаименованиеПолное, ИНН, КПП, Description).
+# (Ref_Key, НаименованиеПолное, ИНН, КПП, заметки).
 CONTRACTORS = [
     ('11111111-1111-1111-1111-111111111101', 'ООО «Ромашка»',
      '7701234567', '770101001', 'Розничная торговля'),
@@ -211,8 +212,18 @@ CONTRACTS = _demo_contracts()
 
 # Демонстрационные документы «1С:Документооборот»:
 # (номер, вид документа, дата, статус, индекс клиента, индекс контрагента
-# в CONTRACTORS (0 — без контрагента), Ref_Key).
+# в CONTRACTORS (0 — без контрагента), Ref_Key, ссылка на объект в 1С).
 _DOC_STATUSES = ('Проведён', 'Черновик', 'Зарегистрирован', 'Отменён')
+
+# Базовый адрес демонстрационного веб-клиента 1С: по нему строится ссылка
+# на объект документа — так в реестре видна кнопка «1С».
+_DEMO_1C_BASE = 'https://1c.delta.local'
+
+
+def _demo_document_url(entity, ref):
+    """Ссылка веб-клиента 1С на объект документа (Документ.<Вид>?ref=<GUID>)."""
+    kind = quote(entity[len('Document_'):])
+    return f'{_DEMO_1C_BASE}/e1cib/data/Документ.{kind}?ref={ref}'
 
 
 def _demo_documents(count=50):
@@ -221,6 +232,7 @@ def _demo_documents(count=50):
     documents = []
     for i in range(count):
         entity = DOCUMENT_ENTITIES[i % len(DOCUMENT_ENTITIES)]
+        ref = f'bbbbbbbb-0000-0000-0000-{i + 1:012d}'
         documents.append((
             f'ДОК-{i + 1:03d}',
             entity[len('Document_'):],
@@ -228,7 +240,8 @@ def _demo_documents(count=50):
             _DOC_STATUSES[i % len(_DOC_STATUSES)],
             i % len(CLIENTS) + 1,
             i % len(CONTRACTORS) + 1 if i % 7 else 0,
-            f'bbbbbbbb-0000-0000-0000-{i + 1:012d}',
+            ref,
+            _demo_document_url(entity, ref),
         ))
     return documents
 
@@ -288,11 +301,11 @@ def _seed_contractors():
     """Создать недостающих контрагентов; существующие не изменяются."""
     contractors = []
     created = 0
-    for ref, full_name, inn, kpp, description in CONTRACTORS:
+    for ref, full_name, inn, kpp, notes in CONTRACTORS:
         contractor = Contractor.query.filter_by(external_ref=ref).first()
         if contractor is None:
             contractor = Contractor(external_ref=ref, full_name=full_name,
-                                    inn=inn, kpp=kpp, description=description)
+                                    inn=inn, kpp=kpp, notes=notes)
             db.session.add(contractor)
             created += 1
         contractors.append(contractor)
@@ -337,10 +350,14 @@ def _seed_contracts(clients, contractors):
 
 
 def _seed_documents(clients, contractors):
-    """Создать недостающие документы (по external_ref)."""
+    """Создать недостающие документы и дозаполнить ссылки на объекты в 1С."""
     created = 0
-    for number, doc_type, doc_date, status, client_idx, contractor_idx, ref in DOCUMENTS:
-        if Document.query.filter_by(external_ref=ref).first() is not None:
+    for (number, doc_type, doc_date, status, client_idx, contractor_idx,
+         ref, external_url) in DOCUMENTS:
+        existing = Document.query.filter_by(external_ref=ref).first()
+        if existing is not None:
+            if not existing.external_url:
+                existing.external_url = external_url
             continue
         contractor = (contractors[contractor_idx - 1]
                       if contractor_idx else None)
@@ -351,7 +368,8 @@ def _seed_documents(clients, contractors):
             doc_type=doc_type,
             number=number,
             doc_date=doc_date,
-            status=status))
+            status=status,
+            external_url=external_url))
         created += 1
     return created
 
@@ -402,7 +420,7 @@ def main():
         print(f'  договоров: {contracts_created}')
         print(f'  документов: {documents_created}')
         print(f'  задач: {tasks_created}')
-        print('Пароли демо-учётных записей обновлены. Тестовые учётные записи:')
+        print('Пароли демо-учётных записей установлены. Тестовые учётные записи:')
         for email, fio, role, password, is_active in USERS:
             print(f'  {email:<22} {password:<20} '
                   f'{"руководитель" if role == "admin" else "сотрудник":<12} '

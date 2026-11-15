@@ -56,7 +56,7 @@ def run():
             odata_username='client-user', odata_password='client-secret')
         contractor = Contractor(
             external_ref=CONTRACTOR_KEY, full_name='ООО «Договор-Тест»',
-            inn='7705555555', kpp='770501001', description='Контрагент')
+            inn='7705555555', kpp='770501001', notes='Контрагент')
         db.session.add_all([client, contractor])
         db.session.commit()
         client_id = client.id
@@ -140,40 +140,62 @@ def run():
     card_html = web.get(f'/contracts/{c1_id}').get_data(as_text=True)
     card_ok = all(value in card_html for value in (
         'Договор № ДГ-001', 'Бухгалтерское сопровождение',
-        'Обработан', 'Нет', f'href="/clients/{client_id}"',
+        'Обработан', 'Нет', 'Дата создания', 'Дата обновления',
+        f'href="/clients/{client_id}"',
         f'href="/contractors/{contractor_id}"'))
     steps.check(card_ok and f'/contracts/{c1_id}/edit' in card_html,
                 'Карточка договора открывается и содержит реквизиты',
-                'номер, клиент, контрагент, описание, признак «Обработан» '
-                'и ссылка на редактирование',
+                'номер, клиент, контрагент, описание, признак «Обработан», '
+                'даты создания и обновления и ссылка на редактирование',
                 'карточка договора оформлена корректно' if card_ok
                 else 'карточка договора неполная')
+    key_pos = card_html.find('>Ключ 1С<')
+    number_pos = card_html.find('>Номер<')
+    steps.check(0 <= key_pos < number_pos,
+                'В карточке договора «Ключ 1С» выводится первым',
+                'поле «Ключ 1С» стоит перед номером договора',
+                '«Ключ 1С» — первое поле' if 0 <= key_pos < number_pos
+                else f'порядок полей нарушен: Ключ 1С={key_pos}, Номер={number_pos}')
 
-    # --- Шаг 3.2. При редактировании доступен только «Обработан» -------
+    # --- Шаг 3.2. При редактировании доступны «Обработан» и «Заметки» ---
     edit_html = web.get(f'/contracts/{c1_id}/edit').get_data(as_text=True)
     readonly_ok = (all(value in edit_html for value in (
         'ДГ-001', 'Бухгалтерское сопровождение', 'Редактируемые поля',
-        'name="processed"'))
+        'name="processed"', 'name="notes"', 'Заметки', 'Просмотр'))
         and 'name="number"' not in edit_html
         and 'name="amount"' not in edit_html)
     steps.check(readonly_ok,
-                'При редактировании договора доступен только признак «Обработан»',
+                'При редактировании договора доступны «Обработан» и «Заметки»',
                 'остальные реквизиты показаны только для чтения',
-                'поля только для чтения' if readonly_ok
+                'поля «Обработан» и «Заметки» редактируются' if readonly_ok
                 else 'редактируемые поля не ограничены')
+    data_block = edit_html.split('>Данные<', 1)[-1].split('>Редактируемые поля<', 1)[0]
+    data_ok = ('Обработан' not in data_block and 'Заметки' not in data_block)
+    steps.check(data_ok,
+                'В блоке «Данные» карточки редактирования нет внутренних полей',
+                'в «Данных» не дублируются «Обработан» и «Заметки» — они '
+                'выводятся только в редактируемых полях',
+                'внутренние поля в «Данных» отсутствуют' if data_ok
+                else 'в «Данных» остались «Обработан» или «Заметки»')
     resp = web.post(f'/contracts/{c1_id}/edit',
-                    data={'processed': 'y'}, follow_redirects=True)
+                    data={'processed': 'y',
+                          'notes': 'Проверка заметок договора'},
+                    follow_redirects=True)
     saved_html = resp.get_data(as_text=True)
     with app.app_context():
         saved = db.session.get(Contract, c1_id)
         saved_ok = (saved is not None and saved.processed is True
                     and saved.number == 'ДГ-001'
-                    and saved.description == 'Бухгалтерское сопровождение')
+                    and saved.description == 'Бухгалтерское сопровождение'
+                    and saved.notes == 'Проверка заметок договора')
         saved_value = saved.processed if saved else None
-    steps.check(resp.status_code == 200 and saved_ok and 'Да' in saved_html,
-                'Признак «Обработан» сохраняется, остальные поля не меняются',
-                'после сохранения «Обработан» = Да, реквизиты прежние',
-                f'Обработан: {saved_value}')
+    steps.check(resp.status_code == 200 and saved_ok and 'Да' in saved_html
+                and 'Проверка заметок договора' in saved_html,
+                'Признак «Обработан» и заметки сохраняются, реквизиты прежние',
+                'после сохранения «Обработан» = Да, заметки видны в карточке, '
+                'остальные реквизиты не изменились',
+                f'Обработан: {saved_value}, заметки: '
+                f'{saved.notes if saved else None}')
 
     # --- Шаг 4. Повторная загрузка не создаёт дублей -------------------
     with app.app_context():
@@ -226,6 +248,12 @@ def run():
                 '25 договоров: 20 на первой странице и 5 на второй',
                 f'всего {total}, на странице 1 — {rows1}, '
                 f'на странице 2 — {rows2}')
+    steps.check('name="date_from"' in page1 and 'name="date_to"' in page1,
+                'В реестре договоров есть фильтр по дате создания',
+                'добавлены поля «Дата создания: с / по»',
+                'фильтр по дате присутствует'
+                if 'name="date_from"' in page1
+                else 'фильтр по дате отсутствует')
 
     search_html = web.get('/contracts',
                           query_string={'q': 'Бухгалтерское'}).get_data(as_text=True)
@@ -239,14 +267,13 @@ def run():
                 'найден только ДГ-001' if 'ДГ-001' in search_html
                 and 'ДГ-002' not in search_html else 'фильтр по полям не работает')
     registry_ok = ('<th>Номер</th>' in page1
-                   and '>Действия<' in page1
                    and f'href="/contracts/{c1_id}"' in search_html
                    and f'href="/contracts/{c1_id}/edit"' in search_html
                    and 'fa-pen' in search_html)
     steps.check(registry_ok,
                 'В реестре договоров есть карточка и кнопка редактирования',
                 'столбец «Номер» ведёт в карточку договора, в конце таблицы — '
-                '«Действия» с кнопкой-карандашом',
+                'кнопка-карандаш для редактирования',
                 'столбцы и ссылки присутствуют' if registry_ok
                 else 'столбцы или ссылки отсутствуют')
     steps.check(f'href="/contractors/{contractor_id}"' in search_html,

@@ -1,4 +1,6 @@
 <dl class="row mb-0">
+  <dt class="col-sm-4">Ключ 1С</dt>
+  <dd class="col-sm-8"><code>{{ contract.external_ref or '—' }}</code></dd>
   <dt class="col-sm-4">Номер</dt>
   <dd class="col-sm-8">{{ contract.number }}</dd>
   <dt class="col-sm-4">Дата договора</dt>
@@ -27,11 +29,17 @@
   </dd>
   <dt class="col-sm-4">Описание</dt>
   <dd class="col-sm-8" style="white-space: pre-wrap;">{{ contract.description or '—' }}</dd>
+  <dt class="col-sm-4">Дата создания</dt>
+  <dd class="col-sm-8">{{ contract.created_at|dtfull }}</dd>
+  <dt class="col-sm-4">Дата обновления</dt>
+  <dd class="col-sm-8">{{ contract.updated_at|dtfull }}</dd>
+  {% if show_internal_fields is not defined or show_internal_fields %}
   <dt class="col-sm-4">Обработан</dt>
   <dd class="col-sm-8">
     <span class="badge {{ 'text-bg-success' if contract.processed else 'text-bg-secondary' }}">
       {{ contract.processed_label }}</span>
   </dd>
-  <dt class="col-sm-4">Дата создания</dt>
-  <dd class="col-sm-8">{{ contract.created_at|dtfull }}</dd>
+  <dt class="col-sm-4">Заметки</dt>
+  <dd class="col-sm-8" style="white-space: pre-wrap;">{{ contract.notes or '—' }}</dd>
+  {% endif %}
 </dl>

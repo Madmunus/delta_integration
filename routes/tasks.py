@@ -38,11 +38,15 @@ def list_tasks():
     if mine:
         q = q.filter(Task.assignee_id == current_user.id)
 
-    tasks = q.order_by(Task.due_date.asc().nullslast(),
-                       Task.priority.asc()).all()
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(Task.due_date.asc().nullslast(),
+                            Task.priority.asc()).paginate(
+        page=page, per_page=20, error_out=False)
     users = User.query.order_by(User.fio).all()
-    return render_template('tasks/list.html', tasks=tasks, tasks_total=len(tasks), users=users,
-                           status=status, assignee_id=assignee_id, mine=mine)
+    return render_template('tasks/list.html',
+                           pagination=pagination,
+                           users=users, status=status,
+                           assignee_id=assignee_id, mine=mine)
 
 
 @bp.route('/tasks/add', methods=['GET', 'POST'])

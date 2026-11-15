@@ -108,14 +108,19 @@ def _upsert_client(row: dict) -> str:
 
 # ----------------------------------------------------------------- контрагенты
 def _upsert_contractor(row: dict) -> str:
-    """Создать или обновить контрагента из Catalog_Контрагенты."""
+    """Создать или обновить контрагента из Catalog_Контрагенты.
+
+    Статус (``Contractor.status``) вычисляется из ``DeletionMark`` так же,
+    как у клиентов: 1 — «архивный», иначе — «активный».
+    Заметки (``Contractor.notes``) — внутреннее поле пользователя:
+    синхронизация их не читает и не перезаписывает.
+    """
     ref_key = _clean(row.get('Ref_Key'))
     full_name = (_clean(row.get('НаименованиеПолное'))
-                 or _clean(row.get('Description'))
                  or '(без наименования)')
     inn = _clean(row.get('ИНН'))
     kpp = _clean(row.get('КПП'))
-    description = _clean(row.get('Description'))
+    status = 'archived' if _is_deletion_mark(row.get('DeletionMark')) else 'active'
 
     contractor = None
     if ref_key:
@@ -133,7 +138,7 @@ def _upsert_contractor(row: dict) -> str:
     contractor.full_name = full_name
     contractor.inn = inn or None
     contractor.kpp = kpp or None
-    contractor.description = description
+    contractor.status = status
     return action
 
 
@@ -263,6 +268,11 @@ def sync_all_contracts() -> dict:
 
 
 # --------------------------------------------------------------------- документы
+# Размер пакета при сохранении документов: коммит каждые N записей
+# уменьшает число транзакций, но сохраняет прогресс при больших выборках.
+_DOCUMENTS_COMMIT_BATCH = 100
+
+
 def sync_documents(settings=None, entities=None, days: int = 30) -> int:
     """Загрузка документов из «1С:Документооборот» (ФТ-4).
 
@@ -307,7 +317,7 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
 
         doc = Document.query.filter_by(external_ref=ref_key).first()
         if doc is None:
-            doc = Document(external_ref=ref_key)
+            doc = Document(external_ref=ref_key, processed=False)
             db.session.add(doc)
         doc.client_id = client.id
         doc.contractor_id = contractor.id if contractor else None
@@ -324,6 +334,8 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
             external_url = document_object_url(
                 setting.odata_url, f'Document_{doc.doc_type}', ref_key, row)
         doc.external_url = external_url or None
-        db.session.commit()
         processed += 1
+        if processed % _DOCUMENTS_COMMIT_BATCH == 0:
+            db.session.commit()
+    db.session.commit()
     return processed

@@ -139,9 +139,23 @@ class ClientForm(FlaskForm):
     submit = SubmitField('Сохранить')
 
 
+class ContractorForm(FlaskForm):
+    """Редактирование контрагента: вручную меняются только заметки."""
+    notes = TextAreaField('Заметки', validators=[Optional(), Length(max=5000)])
+    submit = SubmitField('Сохранить')
+
+
 class ContractForm(FlaskForm):
-    """Редактирование договора: вручную меняется только признак «Обработан»."""
+    """Редактирование договора: признак «Обработан» и заметки."""
     processed = BooleanField('Обработан')
+    notes = TextAreaField('Заметки', validators=[Optional(), Length(max=5000)])
+    submit = SubmitField('Сохранить')
+
+
+class DocumentForm(FlaskForm):
+    """Редактирование документа: признак «Обработан» и заметки."""
+    processed = BooleanField('Обработан')
+    notes = TextAreaField('Заметки', validators=[Optional(), Length(max=5000)])
     submit = SubmitField('Сохранить')
 
 
