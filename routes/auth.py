@@ -30,7 +30,7 @@ def login():
             next_url = None
         return redirect(next_url or url_for('dashboard.index'))
 
-    return render_template('login.html', form=form)
+    return render_template('auth/login.html', form=form)
 
 
 @bp.route('/logout')

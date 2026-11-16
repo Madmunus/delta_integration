@@ -4,7 +4,7 @@ from datetime import date
 
 from flask import Blueprint, abort, render_template
 from flask_login import current_user, login_required
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func
 
 from engine.models import Client, Contract, ReportingDeadline, Task, User, db
 
@@ -45,15 +45,19 @@ def clients_report():
 @bp.route('/reports/tasks')
 @login_required
 def tasks_report():
-    """Отчёт по задачам: выполненные, в работе, просроченные."""
+    """Отчёт по задачам: выполненные, в работе, просроченные по сроку."""
     if not current_user.is_admin:
         abort(403)
+    today = date.today()
+    overdue_condition = and_(Task.status != 'done',
+                             Task.due_date.isnot(None),
+                             Task.due_date < today)
     rows = (db.session.query(
                 User.fio,
                 func.sum(case((Task.status == 'done', 1), else_=0)),
                 func.sum(case((Task.status.in_(
                     ['new', 'in_progress']), 1), else_=0)),
-                func.sum(case((Task.status == 'overdue', 1), else_=0)),
+                func.sum(case((overdue_condition, 1), else_=0)),
             ).outerjoin(Task, Task.assignee_id == User.id)
              .group_by(User.id, User.fio)
              .order_by(User.fio)).all()
@@ -62,7 +66,7 @@ def tasks_report():
     no_assignee = (
         unassigned.filter_by(status='done').count(),
         unassigned.filter(Task.status.in_(['new', 'in_progress'])).count(),
-        unassigned.filter_by(status='overdue').count(),
+        unassigned.filter(overdue_condition).count(),
     )
     return render_template('reports/tasks.html', rows=rows, no_assignee=no_assignee)
 

@@ -1,0 +1,22 @@
+{#- Сортируемый заголовок столбца реестра: 3 состояния — по возрастанию,
+    по убыванию и отключено (сортировка по умолчанию). Текущее состояние
+    показывается стрелкой ▲ / ▼. Параметры фильтров передаются в params,
+    чтобы сортировка не сбрасывала выбранный фильтр. -#}
+{% macro sort_link(endpoint, key, label, sort=None, direction=None, params={}) %}
+  {%- if sort == key and direction == 'asc' -%}
+    {%- set href = url_for(endpoint, sort=key, dir='desc', **params) -%}
+    {%- set title = 'Сортировка по убыванию' -%}
+    {%- set arrow = '▲' -%}
+  {%- elif sort == key and direction == 'desc' -%}
+    {%- set href = url_for(endpoint, **params) -%}
+    {%- set title = 'Отключить сортировку (по умолчанию)' -%}
+    {%- set arrow = '▼' -%}
+  {%- else -%}
+    {%- set href = url_for(endpoint, sort=key, dir='asc', **params) -%}
+    {%- set title = 'Сортировка по возрастанию' -%}
+    {%- set arrow = '' -%}
+  {%- endif -%}
+  <a class="link-dark text-decoration-none" href="{{ href }}" title="{{ title }}">
+    {{ label }}{% if arrow %} <span class="small">{{ arrow }}</span>{% endif %}
+  </a>
+{% endmacro %}

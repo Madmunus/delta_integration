@@ -202,6 +202,21 @@ def run():
                 'фильтр и ссылка оформлены корректно'
                 if link_in_type is not None
                 else 'фильтр или ссылка оформлены неверно')
+    sort_asc = web.get('/documents', query_string={
+        'q': 'РТ', 'sort': 'number', 'dir': 'asc'}).get_data(as_text=True)
+    sort_desc = web.get('/documents', query_string={
+        'q': 'РТ', 'sort': 'number', 'dir': 'desc'}).get_data(as_text=True)
+    sorting_ok = ('▲' in sort_asc and '▼' in sort_desc
+                  and 'name="sort" value="number"' in sort_asc
+                  and 'name="dir" value="asc"' in sort_asc
+                  and sort_asc.find('РТ-101') < sort_asc.find('РТ-102')
+                  and sort_desc.find('РТ-102') < sort_desc.find('РТ-101'))
+    steps.check(sorting_ok,
+                'В реестре документов работает сортировка по столбцам',
+                'клик по заголовку сортирует по возрастанию (▲), повторный — '
+                'по убыванию (▼); выбранная сортировка сохраняется в фильтре',
+                'сортировка по номеру работает' if sorting_ok
+                else 'сортировка по столбцам не работает')
     badge_styles = {
         'Проведён': 'text-bg-success',
         'Зарегистрирован': 'text-bg-primary',
@@ -215,6 +230,28 @@ def run():
                 '«Черновик» — серый',
                 'бейджи статусов отображаются'
                 if badges_ok else 'бейджи статусов отсутствуют или неверны')
+    with app.app_context():
+        document_mapping_ok = (
+            Document.STATUS_BADGES.get('проведен') == 'text-bg-success'
+            and Document.STATUS_BADGES.get('зарегистрирован') == 'text-bg-primary'
+            and Document.STATUS_BADGES.get('черновик') == 'text-bg-secondary'
+            and Document.STATUS_BADGES.get('отменен') == 'text-bg-danger'
+            and Document(status='Проведён').status_badge_class
+            == 'text-bg-success'
+            and Document(status='Зарегистрирован').status_badge_class
+            == 'text-bg-primary'
+            and Document(status='Черновик').status_badge_class
+            == 'text-bg-secondary'
+            and Document(status='Неизвестный').status_badge_class
+            == 'text-bg-dark'
+            and Document(status='').status_badge_class == 'text-bg-dark')
+    steps.check(document_mapping_ok,
+                'Для статусов документа задано соответствие цветных бейджей',
+                'известные статусы получают свой цвет независимо от регистра '
+                'и «ё», неизвестный или пустой — нейтральный тёмный',
+                'соответствие статусов и цветов настроено'
+                if document_mapping_ok
+                else 'соответствие статусов и цветов неверно')
     with app.app_context():
         sales_id_for_edit = Document.query.filter_by(number='РТ-101').first().id
     actions_ok = ('<th></th>' in registry_html

@@ -87,6 +87,13 @@ def _ensure_schema():
                     f'UPDATE {table} SET created_at = CURRENT_TIMESTAMP '
                     "WHERE created_at = '1970-01-01 00:00:00'"))
 
+        # Статус «просрочена» больше не хранится: просрочка вычисляется
+        # по сроку выполнения задачи (due_date < сегодня и не выполнена).
+        if 'tasks' in tables:
+            connection.execute(text(
+                "UPDATE tasks SET status = 'in_progress' "
+                "WHERE status = 'overdue'"))
+
         # Внутренний признак договора «Обработан»
         if 'contracts' in tables and 'processed' not in columns_of('contracts'):
             connection.execute(text(

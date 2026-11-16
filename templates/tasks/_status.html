@@ -1,0 +1,6 @@
+{# Бейдж статуса задачи: цвет берётся из соответствия Task.STATUS_BADGES.
+   «Просрочена» не является статусом — это признак срока, который
+   вычисляется по due_date и выводится отдельным красным бейджем. #}
+{% macro task_status_badge(task) -%}
+  <span class="badge {{ task.status_badge_class }}">{{ task.status_label }}</span>
+{%- endmacro %}

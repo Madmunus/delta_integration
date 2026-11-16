@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% from 'tasks/_status.html' import task_status_badge %}
+{% from 'tasks/_priority.html' import task_priority_badge %}
+{% block title %}Задача: {{ task.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">Задача: {{ task.title }}</h1>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-primary btn-sm"
+       href="{{ url_for('tasks.edit_task', task_id=task.id) }}">Редактировать</a>
+  </div>
+</div>
+
+<div class="card" style="max-width: 760px;">
+  <div class="card-body">
+    <h2 class="h6 mb-3">Данные</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-4">Создана</dt>
+      <dd class="col-sm-8">{{ task.created_at|dtfull }}</dd>
+      <dt class="col-sm-4">Обновлена</dt>
+      <dd class="col-sm-8">{{ task.updated_at|dtfull }}</dd>
+      <dt class="col-sm-4">Автогенерация</dt>
+      <dd class="col-sm-8">
+        {% if task.reporting_deadline %}
+          <span class="badge text-bg-info">авто</span>
+          по сроку «{{ task.reporting_deadline.name }}»
+        {% else %}—{% endif %}
+      </dd>
+      <dt class="col-sm-4">Наименование</dt>
+      <dd class="col-sm-8">{{ task.title }}</dd>
+      <dt class="col-sm-4">Клиент</dt>
+      <dd class="col-sm-8">
+        {% if task.client %}
+          <a href="{{ url_for('clients.detail', client_id=task.client_id) }}">{{ task.client.name }}</a>
+        {% else %}—{% endif %}
+      </dd>
+      <dt class="col-sm-4">Исполнитель</dt>
+      <dd class="col-sm-8">{{ task.assignee.fio if task.assignee else '—' }}</dd>
+      <dt class="col-sm-4">Срок</dt>
+      <dd class="col-sm-8">{{ task.due_date|dt if task.due_date else '—' }}
+        {% if task.days_left is not none and task.status != 'done' %}
+          {% if task.days_left < 0 %}<span class="badge text-bg-danger">просрочена на {{ -task.days_left }} дн.</span>
+          {% elif task.days_left <= 3 %}<span class="badge text-bg-warning">осталось {{ task.days_left }} дн.</span>{% endif %}
+        {% endif %}
+      </dd>
+      <dt class="col-sm-4">Приоритет</dt>
+      <dd class="col-sm-8">{{ task_priority_badge(task) }}</dd>
+      <dt class="col-sm-4">Статус</dt>
+      <dd class="col-sm-8">{{ task_status_badge(task) }}</dd>
+      <dt class="col-sm-4">Описание</dt>
+      <dd class="col-sm-8" style="white-space: pre-wrap;">{{ task.description or '—' }}</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

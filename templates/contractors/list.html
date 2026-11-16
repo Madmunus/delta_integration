@@ -1,16 +1,23 @@
 {% extends 'base.html' %}
 {% block title %}Контрагенты{% endblock %}
 {% from '_pagination.html' import render_pagination %}
+{% from '_sort.html' import sort_link %}
 {% block content %}
+{% set filter_params = dict(q=search, date_from=date_from, date_to=date_to) %}
+{% set sort_params = dict(filter_params, page=pagination.page) %}
+{% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
     <h1 class="h4 mb-1">Контрагенты <span class="text-muted">({{ pagination.total }})</span></h1>
   </div>
-  {{ render_pagination(pagination, 'contractors.list_contractors',
-       dict(q=search, date_from=date_from, date_to=date_to)) }}
+  {{ render_pagination(pagination, 'contractors.list_contractors', page_params) }}
 </div>
 
 <form class="row g-2 mb-3" method="get">
+  {% if sort %}
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ direction }}">
+  {% endif %}
   <div class="col-12 col-md-4 col-lg-3">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
@@ -35,11 +42,11 @@
 <table class="table table-hover align-middle">
   <thead class="table-light">
     <tr>
-      <th>Наименование</th>
-      <th>ИНН</th>
-      <th>Статус</th>
-      <th>Заметки</th>
-      <th>Дата создания</th>
+      <th>{{ sort_link('contractors.list_contractors', 'name', 'Наименование', sort, direction, sort_params) }}</th>
+      <th>{{ sort_link('contractors.list_contractors', 'inn', 'ИНН', sort, direction, sort_params) }}</th>
+      <th>{{ sort_link('contractors.list_contractors', 'status', 'Статус', sort, direction, sort_params) }}</th>
+      <th>{{ sort_link('contractors.list_contractors', 'notes', 'Заметки', sort, direction, sort_params) }}</th>
+      <th>{{ sort_link('contractors.list_contractors', 'created_at', 'Дата создания', sort, direction, sort_params) }}</th>
       <th class="text-end"></th>
     </tr>
   </thead>

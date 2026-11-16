@@ -156,6 +156,25 @@ def run():
                 'поле «Ключ 1С» стоит перед номером договора',
                 '«Ключ 1С» — первое поле' if 0 <= key_pos < number_pos
                 else f'порядок полей нарушен: Ключ 1С={key_pos}, Номер={number_pos}')
+    with app.app_context():
+        contract_mapping_ok = (
+            Contract.STATUS_BADGES == {
+                'draft': 'text-bg-light text-dark',
+                'active': 'text-bg-success',
+                'closed': 'text-bg-secondary',
+            }
+            and Contract(status='draft').status_badge_class
+            == 'text-bg-light text-dark'
+            and Contract(status='active').status_badge_class == 'text-bg-success'
+            and Contract(status='closed').status_badge_class == 'text-bg-secondary'
+            and Contract(status='unknown').status_badge_class == 'text-bg-dark')
+    steps.check(contract_mapping_ok,
+                'Для статусов договора задано соответствие цветных бейджей',
+                '«проект» — светлый, «действующий» — зелёный, '
+                '«завершённый» — серый; для неизвестного — нейтральный тёмный',
+                'соответствие статусов и цветов настроено'
+                if contract_mapping_ok
+                else 'соответствие статусов и цветов неверно')
 
     # --- Шаг 3.2. При редактировании доступны «Обработан» и «Заметки» ---
     edit_html = web.get(f'/contracts/{c1_id}/edit').get_data(as_text=True)
@@ -254,6 +273,20 @@ def run():
                 'фильтр по дате присутствует'
                 if 'name="date_from"' in page1
                 else 'фильтр по дате отсутствует')
+    page2_sorted = web.get('/contracts', query_string={
+        'page': 2, 'sort': 'number', 'dir': 'asc'}).get_data(as_text=True)
+    pagination_sort_ok = ('▲' in page2_sorted
+                          and 'name="sort" value="number"' in page2_sorted
+                          and 'name="dir" value="asc"' in page2_sorted
+                          and 'sort=number' in page2_sorted
+                          and 'dir=asc' in page2_sorted)
+    steps.check(pagination_sort_ok,
+                'При переходе на другую страницу сортировка сохраняется',
+                'ссылки пагинации содержат sort и dir, а заголовок '
+                'по-прежнему показывает ▲',
+                'сортировка сохраняется при листании'
+                if pagination_sort_ok
+                else 'при смене страницы сортировка сбрасывается')
 
     search_html = web.get('/contracts',
                           query_string={'q': 'Бухгалтерское'}).get_data(as_text=True)
@@ -266,7 +299,7 @@ def run():
                 'поиск «Бухгалтерское» находит только договор ДГ-001',
                 'найден только ДГ-001' if 'ДГ-001' in search_html
                 and 'ДГ-002' not in search_html else 'фильтр по полям не работает')
-    registry_ok = ('<th>Номер</th>' in page1
+    registry_ok = ('sort=number' in page1
                    and f'href="/contracts/{c1_id}"' in search_html
                    and f'href="/contracts/{c1_id}/edit"' in search_html
                    and 'fa-pen' in search_html)
@@ -276,6 +309,23 @@ def run():
                 'кнопка-карандаш для редактирования',
                 'столбцы и ссылки присутствуют' if registry_ok
                 else 'столбцы или ссылки отсутствуют')
+    sort_asc = web.get('/contracts', query_string={
+        'q': 'ДГ', 'sort': 'number', 'dir': 'asc'}).get_data(as_text=True)
+    sort_desc = web.get('/contracts', query_string={
+        'q': 'ДГ', 'sort': 'number', 'dir': 'desc'}).get_data(as_text=True)
+    sorting_ok = ('▲' in sort_asc and '▼' in sort_desc
+                  and 'name="sort" value="number"' in sort_asc
+                  and 'name="dir" value="asc"' in sort_asc
+                  and sort_asc.find('ДГ-001') < sort_asc.find('ДГ-002')
+                  < sort_asc.find('ДГ-003')
+                  and sort_desc.find('ДГ-003') < sort_desc.find('ДГ-002')
+                  < sort_desc.find('ДГ-001'))
+    steps.check(sorting_ok,
+                'В реестре договоров работает сортировка по столбцам',
+                'клик по заголовку сортирует по возрастанию (▲), повторный — '
+                'по убыванию (▼); выбранная сортировка сохраняется в фильтре',
+                'сортировка по номеру работает' if sorting_ok
+                else 'сортировка по столбцам не работает')
     steps.check(f'href="/contractors/{contractor_id}"' in search_html,
                 'В реестре договоров есть ссылка на карточку контрагента',
                 'наименование контрагента в строке таблицы ведёт в его карточку',
@@ -292,6 +342,20 @@ def run():
                 'select и фильтр по статусу работают'
                 if 'ДГ-002' in status_html and 'ДГ-001' not in status_html
                 else 'фильтр по статусу не работает')
+    draft_html = web.get('/contracts',
+                         query_string={'status': 'draft'}).get_data(as_text=True)
+    contract_badges_ok = (
+        'class="badge text-bg-success">Действует</span>' in search_html
+        and 'class="badge text-bg-secondary">Закрыт</span>' in status_html
+        and 'class="badge text-bg-light text-dark">Проект</span>' in draft_html
+        and 'class="badge text-bg-success">Действует</span>' in card_html)
+    steps.check(contract_badges_ok,
+                'Статус договора выводится своим цветным бейджем',
+                '«Действует» — зелёный, «Закрыт» — серый, «Проект» — светлый; '
+                'бейдж отображается в реестре и карточке договора',
+                'бейджи статусов договора отображаются'
+                if contract_badges_ok
+                else 'бейджи статусов договора отсутствуют или неверны')
 
     conclusion = ('Договоры загружаются из «1С:Бухгалтерия» по реквизитам '
                   'клиента, дублирование отсутствует.'

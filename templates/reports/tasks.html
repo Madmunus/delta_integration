@@ -17,7 +17,7 @@
       <td class="text-end text-success">{{ done or 0 }}</td>
       <td class="text-end">{{ work or 0 }}</td>
       <td class="text-end {{ 'text-danger fw-bold' if over }}">{{ over or 0 }}</td>
-      <td class="text-end">{{ (done or 0) + (work or 0) + (over or 0) }}</td>
+      <td class="text-end">{{ (done or 0) + (work or 0) }}</td>
     </tr>
   {% endfor %}
   <tr class="table-light">

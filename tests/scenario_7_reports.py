@@ -33,15 +33,15 @@ CLIENTS = [
     ('ООО «Незабудка-Т»', '7707777705', 'active', None),
 ]
 
-# Датасет: 6 задач с известными исполнителями и статусами
+# Датасет: 6 задач с известными исполнителями, статусами и сроками
 TASKS = [
-    # (клиент, исполнитель, статус)
-    ('ООО «Ромашка-Т»', 'emp1', 'done'),
-    ('ООО «Лютик-Т»', 'emp1', 'in_progress'),
-    ('ООО «Ромашка-Т»', 'emp1', 'overdue'),
-    ('ООО «Василёк-Т»', 'emp2', 'done'),
-    ('ООО «Василёк-Т»', 'emp2', 'new'),
-    ('ООО «Ромашка-Т»', None, 'overdue'),
+    # (клиент, исполнитель, статус, смещение срока в днях от сегодня)
+    ('ООО «Ромашка-Т»', 'emp1', 'done', 3),
+    ('ООО «Лютик-Т»', 'emp1', 'in_progress', 3),
+    ('ООО «Ромашка-Т»', 'emp1', 'in_progress', -2),  # просрочена по сроку
+    ('ООО «Василёк-Т»', 'emp2', 'done', -5),         # выполнена — не просрочена
+    ('ООО «Василёк-Т»', 'emp2', 'new', 3),
+    ('ООО «Ромашка-Т»', None, 'new', -1),            # просрочена без исполнителя
 ]
 
 # Разметка шаблонов отчётов (для извлечения показателей со страницы)
@@ -65,11 +65,16 @@ def _clients_of(responsible):
 
 
 def _task_counts(assignee):
-    """Ожидаемое число задач исполнителя: (выполнено, в работе, просрочено)."""
-    done = sum(1 for _, a, s in TASKS if a == assignee and s == 'done')
-    work = sum(1 for _, a, s in TASKS
-               if a == assignee and s in ('new', 'in_progress'))
-    over = sum(1 for _, a, s in TASKS if a == assignee and s == 'overdue')
+    """Ожидаемое число задач исполнителя: (выполнено, в работе, просрочено).
+
+    Просрочка — признак срока: задача не выполнена и её срок уже прошёл.
+    """
+    own = [t for t in TASKS if t[1] == assignee]
+    done = sum(1 for _, _, status, _ in own if status == 'done')
+    work = sum(1 for _, _, status, _ in own
+               if status in ('new', 'in_progress'))
+    over = sum(1 for _, _, status, days in own
+               if status != 'done' and days < 0)
     return done, work, over
 
 
@@ -87,12 +92,12 @@ def run():
         db.session.flush()
         for name, _, _, _ in CLIENTS:
             client_ids[name] = Client.query.filter_by(name=name).first().id
-        for client_name, assignee, status in TASKS:
+        for client_name, assignee, status, due_offset in TASKS:
             db.session.add(Task(
                 title=f'Задача для {client_name}',
                 client_id=client_ids[client_name],
                 assignee_id=users[assignee] if assignee else None,
-                due_date=date.today() + timedelta(days=3),
+                due_date=date.today() + timedelta(days=due_offset),
                 status=status))
         db.session.commit()
 

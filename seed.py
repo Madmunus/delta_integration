@@ -381,7 +381,7 @@ def _seed_tasks(clients, user_list):
     demo_tasks = [
         ('Сверка с ФНС по ООО «Ромашка»', 1, 2, today + timedelta(days=5), 2, 'new'),
         ('Подготовка декларации по НДС ООО «ТехноПром»', 2, 3, today + timedelta(days=10), 1, 'in_progress'),
-        ('Восстановление документов ИП Сидоров', 3, 2, today - timedelta(days=3), 1, 'overdue'),
+        ('Восстановление документов ИП Сидоров', 3, 2, today - timedelta(days=3), 1, 'in_progress'),
         ('Получение справки о отсутствии задолженности', 1, 2, today + timedelta(days=2), 3, 'new'),
         ('Закрытие месяца по всем клиентам', 0, 1, today + timedelta(days=7), 2, 'in_progress'),
         ('Обновление карточек клиентов после сверки', 0, 1, today - timedelta(days=1), 3, 'done'),

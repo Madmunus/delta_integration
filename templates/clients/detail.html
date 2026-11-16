@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
-{% from '_document_status.html' import document_status_badge %}
+{% from 'documents/_status.html' import document_status_badge %}
+{% from 'tasks/_priority.html' import task_priority_badge %}
+{% from 'contracts/_status.html' import contract_status_badge %}
 {% block title %}{{ client.name }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
@@ -7,8 +9,6 @@
     <h1 class="h4 mb-1">Клиент {{ client.name }}</h1>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-outline-primary btn-sm"
-       href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
     <a class="btn btn-outline-secondary btn-sm"
        href="{{ url_for('tasks.edit_task') }}?client={{ client.id }}">+ Задача</a>
     <form method="post"
@@ -16,6 +16,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-outline-success btn-sm">Загрузить договоры из 1С</button>
     </form>
+    <a class="btn btn-outline-primary btn-sm"
+       href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
   </div>
 </div>
 
@@ -79,9 +81,7 @@
           </td>
           <td class="text-end">{{ c.amount|money }}</td>
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
-          <td><span class="badge
-            {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
-            {{ c.status_1c or c.status_label }}</span></td>
+          <td>{{ contract_status_badge(c) }}</td>
           <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
         </tr>
       {% else %}
@@ -97,11 +97,11 @@
         <th>Приоритет</th><th>Статус</th><th>Дата создания</th></tr></thead>
       <tbody>
       {% for t in tasks %}
-        <tr class="{{ 'table-danger' if t.is_overdue }}">
+        <tr>
           <td><a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(70) }}</a></td>
           <td>{{ t.assignee.fio if t.assignee else '—' }}</td>
           <td class="text-nowrap">{{ t.due_date|dt }}</td>
-          <td>{{ t.priority_label }}</td>
+          <td>{{ task_priority_badge(t) }}</td>
           <td>{{ t.status_label }}</td>
           <td class="text-nowrap">{{ t.created_at|dtfull }}</td>
         </tr>
@@ -127,7 +127,7 @@
               <a href="{{ url_for('contractors.detail', contractor_id=d.contractor_id) }}">{{ d.contractor.display_name }}</a>
             {% else %}—{% endif %}
           </td>
-          <td>{{ document_status_badge(d.status) }}</td>
+          <td>{{ document_status_badge(d) }}</td>
           <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
               rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
           <td class="text-nowrap">{{ d.created_at|dtfull }}</td>

@@ -169,7 +169,7 @@ class TaskForm(FlaskForm):
         (1, 'Высокий'), (2, 'Средний'), (3, 'Низкий')])
     status = SelectField('Статус', choices=[
         ('new', 'Новая'), ('in_progress', 'В работе'),
-        ('done', 'Выполнена'), ('overdue', 'Просрочена')])
+        ('done', 'Выполнена')])
     submit = SubmitField('Сохранить')
 
 

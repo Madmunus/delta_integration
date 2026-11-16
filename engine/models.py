@@ -158,6 +158,13 @@ class Contractor(db.Model):
 class Contract(db.Model):
     __tablename__ = 'contracts'
 
+    # Соответствие статуса и цвета бейджа (Bootstrap)
+    STATUS_BADGES = {
+        'draft': 'text-bg-light text-dark',  # проект
+        'active': 'text-bg-success',         # действующий
+        'closed': 'text-bg-secondary',       # завершённый
+    }
+
     id = db.Column(db.Integer, primary_key=True)
     number = db.Column(db.String(64), nullable=False)          # Наименование
     signed_date = db.Column(db.Date, nullable=False, default=date.today)  # Дата
@@ -185,6 +192,11 @@ class Contract(db.Model):
             self.status, self.status)
 
     @property
+    def status_badge_class(self):
+        """CSS-класс цветного бейджа для статуса договора."""
+        return self.STATUS_BADGES.get(self.status, 'text-bg-dark')
+
+    @property
     def contractor_name(self) -> str:
         if self.contractor is not None:
             return self.contractor.display_name
@@ -203,6 +215,29 @@ class Contract(db.Model):
 # ----------------------------------------------------------------------------
 class Document(db.Model):
     __tablename__ = 'documents'
+
+    # Соответствие статуса и цвета бейджа (Bootstrap).
+    # Статусы приходят из «1С:Документооборот» свободным текстом,
+    # поэтому ключи приведены к нижнему регистру, «ё» заменена на «е».
+    STATUS_BADGES = {
+        'черновик': 'text-bg-secondary',
+        'проект': 'text-bg-secondary',
+        'новый': 'text-bg-secondary',
+        'на согласовании': 'text-bg-warning',
+        'в работе': 'text-bg-warning',
+        'ожидает': 'text-bg-warning',
+        'согласован': 'text-bg-info',
+        'утвержден': 'text-bg-info',
+        'подписан': 'text-bg-info',
+        'зарегистрирован': 'text-bg-primary',
+        'проведен': 'text-bg-success',
+        'исполнен': 'text-bg-success',
+        'завершен': 'text-bg-success',
+        'оплачен': 'text-bg-success',
+        'отменен': 'text-bg-danger',
+        'отклонен': 'text-bg-danger',
+        'ошибка': 'text-bg-danger',
+    }
 
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False, index=True)
@@ -226,6 +261,12 @@ class Document(db.Model):
     def processed_label(self) -> str:
         return 'Да' if self.processed else 'Нет'
 
+    @property
+    def status_badge_class(self):
+        """CSS-класс цветного бейджа для статуса документа."""
+        key = (self.status or '').strip().lower().replace('ё', 'е')
+        return self.STATUS_BADGES.get(key, 'text-bg-dark')
+
     def __repr__(self):
         return f'<Document {self.doc_type} №{self.number}>'
 
@@ -239,7 +280,20 @@ class Task(db.Model):
     STATUS_NEW = 'new'
     STATUS_IN_PROGRESS = 'in_progress'
     STATUS_DONE = 'done'
-    STATUS_OVERDUE = 'overdue'
+    # Порядок статусов для кнопок «назад» / «вперёд» в реестре
+    STATUS_SEQUENCE = (STATUS_NEW, STATUS_IN_PROGRESS, STATUS_DONE)
+    # Соответствие статуса и цвета бейджа (Bootstrap)
+    STATUS_BADGES = {
+        STATUS_NEW: 'text-bg-secondary',        # серый
+        STATUS_IN_PROGRESS: 'text-bg-primary',  # синий
+        STATUS_DONE: 'text-bg-success',         # зелёный
+    }
+    # Соответствие приоритета и цвета бейджа (Bootstrap)
+    PRIORITY_BADGES = {
+        1: 'text-bg-danger',     # высокий
+        2: 'text-bg-warning',    # средний
+        3: 'text-bg-secondary',  # низкий
+    }
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(512), nullable=False)
@@ -263,12 +317,44 @@ class Task(db.Model):
     def status_label(self):
         return {
             'new': 'новая', 'in_progress': 'в работе',
-            'done': 'выполнена', 'overdue': 'просрочена',
+            'done': 'выполнена',
         }.get(self.status, self.status)
+
+    @property
+    def status_badge_class(self):
+        """CSS-класс цветного бейджа для текущего статуса задачи."""
+        return self.STATUS_BADGES.get(self.status, 'text-bg-dark')
 
     @property
     def priority_label(self):
         return {1: 'высокий', 2: 'средний', 3: 'низкий'}.get(self.priority, 'средний')
+
+    @property
+    def priority_badge_class(self):
+        """CSS-класс цветного бейджа для текущего приоритета задачи."""
+        return self.PRIORITY_BADGES.get(self.priority, 'text-bg-dark')
+
+    def _status_index(self):
+        try:
+            return self.STATUS_SEQUENCE.index(self.status)
+        except ValueError:
+            return None
+
+    @property
+    def prev_status(self):
+        """Предыдущий статус в цепочке или None, если текущий первый."""
+        idx = self._status_index()
+        if idx is None or idx == 0:
+            return None
+        return self.STATUS_SEQUENCE[idx - 1]
+
+    @property
+    def next_status(self):
+        """Следующий статус в цепочке или None, если текущий последний."""
+        idx = self._status_index()
+        if idx is None or idx == len(self.STATUS_SEQUENCE) - 1:
+            return None
+        return self.STATUS_SEQUENCE[idx + 1]
 
     @property
     def is_overdue(self) -> bool:

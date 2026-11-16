@@ -95,20 +95,6 @@ def _shift_days(d: date, days: int) -> date:
     return d + timedelta(days=days)
 
 
-def mark_overdue_tasks() -> int:
-    """Перевод невыполненных задач с истёкшим сроком в статус «просрочена»."""
-    today = date.today()
-    overdue = Task.query.filter(
-        Task.due_date < today,
-        Task.status.in_([Task.STATUS_NEW, Task.STATUS_IN_PROGRESS]),
-    ).all()
-    for task in overdue:
-        task.status = Task.STATUS_OVERDUE
-    if overdue:
-        db.session.commit()
-    return len(overdue)
-
-
 def init_scheduler(app):
     """Инициализация фонового планировщика (APScheduler)."""
     from functools import partial

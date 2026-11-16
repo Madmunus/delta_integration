@@ -10,6 +10,15 @@ from engine.models import Client, Contract, Contractor, Document, db
 
 bp = Blueprint('contractors', __name__)
 
+# Сортируемые столбцы реестра: имя параметра -> колонка/выражение
+SORTABLE_COLUMNS = {
+    'name': Contractor.full_name,
+    'inn': Contractor.inn,
+    'status': Contractor.status,
+    'notes': Contractor.notes,
+    'created_at': Contractor.created_at,
+}
+
 
 @bp.route('/contractors')
 @login_required
@@ -27,13 +36,33 @@ def list_contractors():
     date_to = request.args.get('date_to') or ''
     q, date_from, date_to = apply_created_at_range(
         q, Contractor.created_at, date_from, date_to)
+
+    # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
+    # и отключена (сортировка по умолчанию: по наименованию).
+    sort = request.args.get('sort') or None
+    direction = request.args.get('dir') or None
+    if sort not in SORTABLE_COLUMNS:
+        sort = None
+        direction = None
+    elif direction not in ('asc', 'desc'):
+        direction = 'asc'
+
+    if sort:
+        order_col = SORTABLE_COLUMNS[sort]
+        order_expr = (order_col.desc() if direction == 'desc'
+                      else order_col.asc()).nullslast()
+        order_by = (order_expr, Contractor.full_name.asc())
+    else:
+        order_by = (Contractor.full_name.asc(),)
+
     page = request.args.get('page', 1, type=int)
-    pagination = q.order_by(Contractor.full_name).paginate(
+    pagination = q.order_by(*order_by).paginate(
         page=page, per_page=20, error_out=False)
     return render_template('contractors/list.html',
                            pagination=pagination,
                            search=search,
-                           date_from=date_from, date_to=date_to)
+                           date_from=date_from, date_to=date_to,
+                           sort=sort, direction=direction)
 
 
 @bp.route('/contractors/<int:contractor_id>')

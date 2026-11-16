@@ -1,0 +1,4 @@
+{# Бейдж приоритета задачи: цвет берётся из соответствия Task.PRIORITY_BADGES. #}
+{% macro task_priority_badge(task) -%}
+  <span class="badge {{ task.priority_badge_class }}">{{ task.priority_label }}</span>
+{%- endmacro %}

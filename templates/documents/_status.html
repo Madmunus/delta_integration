@@ -1,0 +1,12 @@
+{# Бейдж статуса документа: цвет берётся из Document.STATUS_BADGES.
+   Статусы приходят из «1С:Документооборот» свободным текстом, поэтому
+   для известных значений задан цвет, а для остальных используется
+   нейтральный тёмный бейдж. #}
+{% macro document_status_badge(document) -%}
+  {%- set value = (document.status or '')|trim -%}
+  {%- if not value -%}
+    <span class="text-muted">—</span>
+  {%- else -%}
+    <span class="badge {{ document.status_badge_class }}">{{ value }}</span>
+  {%- endif -%}
+{%- endmacro %}

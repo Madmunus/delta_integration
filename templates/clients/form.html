@@ -8,13 +8,6 @@
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-outline-primary btn-sm"
        href="{{ url_for('clients.detail', client_id=client.id) }}">Просмотр</a>
-    <a class="btn btn-outline-secondary btn-sm"
-       href="{{ url_for('tasks.edit_task') }}?client={{ client.id }}">+ Задача</a>
-    <form method="post"
-          action="{{ url_for('clients.sync_client_contracts', client_id=client.id) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn-outline-success btn-sm">Загрузить договоры из 1С</button>
-    </form>
   </div>
 </div>
 

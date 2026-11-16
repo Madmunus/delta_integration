@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
-{% from '_document_status.html' import document_status_badge %}
+{% from 'documents/_status.html' import document_status_badge %}
+{% from 'contracts/_status.html' import contract_status_badge %}
 {% block title %}{{ contractor.display_name }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
@@ -63,9 +64,7 @@
           </td>
           <td class="text-end">{{ c.amount|money }}</td>
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
-          <td><span class="badge
-            {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
-            {{ c.status_1c or c.status_label }}</span></td>
+          <td>{{ contract_status_badge(c) }}</td>
           <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
         </tr>
       {% else %}
@@ -90,7 +89,7 @@
               <a href="{{ url_for('clients.detail', client_id=d.client.id) }}">{{ d.client.name }}</a>
             {% else %}—{% endif %}
           </td>
-          <td>{{ document_status_badge(d.status) }}</td>
+          <td>{{ document_status_badge(d) }}</td>
           <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
               rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
           <td class="text-nowrap">{{ d.created_at|dtfull }}</td>

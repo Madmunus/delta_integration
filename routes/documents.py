@@ -10,6 +10,17 @@ from engine.models import Client, Contractor, Document, db
 
 bp = Blueprint('documents', __name__)
 
+# Сортируемые столбцы реестра: имя параметра -> колонка/выражение
+SORTABLE_COLUMNS = {
+    'doc_type': Document.doc_type,
+    'number': Document.number,
+    'doc_date': Document.doc_date,
+    'client': Client.name,
+    'contractor': Contractor.full_name,
+    'status': Document.status,
+    'created_at': Document.created_at,
+}
+
 
 @bp.route('/documents')
 @login_required
@@ -18,34 +29,53 @@ def list_documents():
 
     Сотрудник видит только документы клиентов, закреплённых за ним (ФТ-1).
     """
-    q = Document.query.join(Client)
+    # Контрагент нужен и для поиска, и для сортировки по столбцу
+    q = (Document.query.join(Client)
+         .outerjoin(Contractor, Document.contractor_id == Contractor.id))
     if not current_user.is_admin:
         q = q.filter(Client.responsible_id == current_user.id)
 
     search = (request.args.get('q') or '').strip()
     if search:
         like = f'%{search}%'
-        q = (q.outerjoin(Contractor, Document.contractor_id == Contractor.id)
-             .filter(or_(Document.doc_type.ilike(like),
+        q = q.filter(or_(Document.doc_type.ilike(like),
                          Document.number.ilike(like),
                          Document.status.ilike(like),
                          Client.name.ilike(like),
-                         Contractor.full_name.ilike(like))))
+                         Contractor.full_name.ilike(like)))
 
     date_from = request.args.get('date_from') or ''
     date_to = request.args.get('date_to') or ''
     q, date_from, date_to = apply_created_at_range(
         q, Document.created_at, date_from, date_to)
 
+    # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
+    # и отключена (сортировка по умолчанию: сначала новые документы).
+    sort = request.args.get('sort') or None
+    direction = request.args.get('dir') or None
+    if sort not in SORTABLE_COLUMNS:
+        sort = None
+        direction = None
+    elif direction not in ('asc', 'desc'):
+        direction = 'asc'
+
+    if sort:
+        order_col = SORTABLE_COLUMNS[sort]
+        order_expr = (order_col.desc() if direction == 'desc'
+                      else order_col.asc()).nullslast()
+        order_by = (order_expr, Document.id.desc())
+    else:
+        order_by = (Document.doc_date.desc().nullslast(), Document.id.desc())
+
     page = request.args.get('page', 1, type=int)
-    pagination = q.order_by(Document.doc_date.desc().nullslast(),
-                            Document.id.desc()).paginate(
+    pagination = q.order_by(*order_by).paginate(
         page=page, per_page=20, error_out=False)
     return render_template('documents/list.html',
                            documents=pagination.items,
                            pagination=pagination,
                            search=search,
-                           date_from=date_from, date_to=date_to)
+                           date_from=date_from, date_to=date_to,
+                           sort=sort, direction=direction)
 
 
 @bp.route('/documents/<int:document_id>')

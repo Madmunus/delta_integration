@@ -183,7 +183,7 @@ def run():
                 'столбец убран, фильтр по дате присутствует'
                 if 'name="date_from"' in contractors_html
                 else 'фильтр по дате отсутствует')
-    statuses_ok = ('<th>Статус</th>' in contractors_html
+    statuses_ok = ('sort=status' in contractors_html
                    and '<span class="badge text-bg-success">активный</span>'
                    in contractors_html
                    and '<span class="badge text-bg-secondary">архивный</span>'
@@ -194,6 +194,21 @@ def run():
                 '«архивный» — серый',
                 'статусы отображаются бейджами' if statuses_ok
                 else 'столбец «Статус» или бейджи отсутствуют')
+    sort_asc = web.get('/contractors', query_string={
+        'sort': 'name', 'dir': 'asc'}).get_data(as_text=True)
+    sort_desc = web.get('/contractors', query_string={
+        'sort': 'name', 'dir': 'desc'}).get_data(as_text=True)
+    sorting_ok = ('▲' in sort_asc and '▼' in sort_desc
+                  and 'name="sort" value="name"' in sort_asc
+                  and 'name="dir" value="asc"' in sort_asc
+                  and sort_asc.find('Альфа-Тест') < sort_asc.find('Бета-Тест')
+                  and sort_desc.find('Бета-Тест') < sort_desc.find('Альфа-Тест'))
+    steps.check(sorting_ok,
+                'В реестре контрагентов работает сортировка по столбцам',
+                'клик по заголовку сортирует по возрастанию (▲), повторный — '
+                'по убыванию (▼); выбранная сортировка сохраняется в фильтре',
+                'сортировка по наименованию работает' if sorting_ok
+                else 'сортировка по столбцам не работает')
 
     # --- Шаг 6. Карточка контрагента ----------------------------------
     with app.app_context():
@@ -296,15 +311,12 @@ def run():
         'информационные поля отображаются'
         if read_only_ok else 'информационные поля отсутствуют')
     header_ok = ('Просмотр' in edit_html
-                 and f'href="/clients/{alpha.id}"' in edit_html
-                 and '+ Задача' in edit_html
-                 and 'Загрузить договоры из 1С' in edit_html)
+                 and f'href="/clients/{alpha.id}"' in edit_html)
     steps.check(header_ok,
-                'В заголовке редактирования клиента есть кнопки карточки',
-                'кнопка «Просмотр» ведёт в карточку, есть «+ Задача» '
-                'и «Загрузить договоры из 1С»',
-                'кнопки заголовка присутствуют' if header_ok
-                else 'кнопки заголовка отсутствуют')
+                'В заголовке редактирования клиента есть кнопка «Просмотр»',
+                'кнопка «Просмотр» ведёт в карточку клиента',
+                'кнопка заголовка присутствует' if header_ok
+                else 'кнопка заголовка отсутствует')
     steps.check('badge text-bg-info' not in html,
                 'На странице списка клиентов нет badge «1С»',
                 'бейдж источника удалён из реестра клиентов',

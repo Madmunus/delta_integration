@@ -1,0 +1,6 @@
+{# Бейдж статуса договора: цвет берётся из Contract.STATUS_BADGES.
+   Если из 1С пришёл текстовый статус, выводится он, а цвет определяется
+   нормализованным статусом договора. #}
+{% macro contract_status_badge(contract) -%}
+  <span class="badge {{ contract.status_badge_class }}">{{ contract.status_1c or contract.status_label }}</span>
+{%- endmacro %}

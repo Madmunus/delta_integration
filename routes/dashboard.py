@@ -28,8 +28,7 @@ def index():
             [c.id for c in my.with_entities(Client.id).all()]))
 
     open_tasks = base_tasks.filter(
-        Task.status.in_([Task.STATUS_NEW, Task.STATUS_IN_PROGRESS,
-                         Task.STATUS_OVERDUE])).all()
+        Task.status.in_([Task.STATUS_NEW, Task.STATUS_IN_PROGRESS])).all()
     overdue_count = sum(1 for t in open_tasks if t.due_date and t.due_date < today)
     upcoming = sorted(
         [t for t in open_tasks if t.due_date and today <= t.due_date <= soon],
@@ -47,7 +46,7 @@ def index():
         recent_clients = recent_clients.filter_by(responsible_id=current_user.id)
     recent_clients = recent_clients.order_by(Client.created_at.desc()).limit(5).all()
 
-    return render_template('dashboard.html',
+    return render_template('dashboard/dashboard.html',
                            active_clients=active_clients,
                            archived_clients=archived_clients,
                            open_tasks_count=len(open_tasks),

@@ -1,14 +1,23 @@
 {% extends 'base.html' %}
+{% from 'contracts/_status.html' import contract_status_badge %}
 {% block title %}Договоры{% endblock %}
 {% from '_pagination.html' import render_pagination %}
+{% from '_sort.html' import sort_link %}
 {% block content %}
+{% set filter_params = dict(q=search, status=status,
+                            date_from=date_from, date_to=date_to) %}
+{% set sort_params = dict(filter_params, page=pagination.page) %}
+{% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h1 class="h4 mb-0">Договоры <span class="text-muted">({{ pagination.total }})</span></h1>
-  {{ render_pagination(pagination, 'contracts.list_contracts',
-       dict(q=search, status=status, date_from=date_from, date_to=date_to)) }}
+  {{ render_pagination(pagination, 'contracts.list_contracts', page_params) }}
 </div>
 
 <form class="row g-2 mb-3" method="get">
+  {% if sort %}
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ direction }}">
+  {% endif %}
   <div class="col-12 col-md-4 col-lg-3">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
@@ -40,14 +49,14 @@
 <div class="table-responsive">
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
-    <th>Номер</th>
-    <th>Дата</th>
-    <th>Клиент</th>
-    <th>Контрагент</th>
-    <th class="text-end">Стоимость</th>
-    <th>Срок действия</th>
-    <th>Статус</th>
-    <th>Дата создания</th>
+    <th>{{ sort_link('contracts.list_contracts', 'number', 'Номер', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'signed_date', 'Дата', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'client', 'Клиент', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'contractor', 'Контрагент', sort, direction, sort_params) }}</th>
+    <th class="text-end">{{ sort_link('contracts.list_contracts', 'amount', 'Стоимость', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'start_date', 'Срок действия', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'status', 'Статус', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'created_at', 'Дата создания', sort, direction, sort_params) }}</th>
     <th class="text-end"></th>
   </tr></thead>
   <tbody>
@@ -63,9 +72,7 @@
       </td>
       <td class="text-end">{{ c.amount|money }}</td>
       <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
-      <td><span class="badge
-        {{ 'text-bg-success' if c.status == 'active' else 'text-bg-secondary' if c.status == 'closed' else 'text-bg-light text-dark' }}">
-        {{ c.status_1c or c.status_label }}</span></td>
+      <td>{{ contract_status_badge(c) }}</td>
       <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
       <td class="text-end">
         <a class="btn btn-outline-secondary btn-sm"
