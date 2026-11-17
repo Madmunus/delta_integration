@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% from 'documents/_status.html' import document_status_badge %}
 {% from 'tasks/_priority.html' import task_priority_badge %}
+{% from 'tasks/_status.html' import task_status_badge %}
 {% from 'contracts/_status.html' import contract_status_badge %}
 {% block title %}{{ client.name }}{% endblock %}
 {% block content %}
@@ -20,6 +21,14 @@
        href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
   </div>
 </div>
+
+{% if not client.is_active %}
+<div class="alert alert-secondary py-2 mb-3">
+  <i class="fa-solid fa-box-archive me-1"></i>
+  Клиент в архиве: проектов и действующих договоров быть не может.
+  Договоры, загруженные из 1С, сохраняются как завершённые.
+</div>
+{% endif %}
 
 <ul class="nav nav-tabs" role="tablist">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
@@ -65,15 +74,16 @@
   </div>
 
   <div class="tab-pane fade" id="tab-contracts">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>№</th><th>Дата</th><th>Контрагент</th>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light"><tr><th>Номер</th><th>Дата</th><th>Контрагент</th>
         <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th>
-        <th>Дата создания</th></tr></thead>
+        <th>Дата создания</th><th class="text-end"></th></tr></thead>
       <tbody>
       {% for c in contracts %}
         <tr>
           <td><a href="{{ url_for('contracts.detail', contract_id=c.id) }}">{{ c.number }}</a></td>
-          <td>{{ c.signed_date|dt }}</td>
+          <td class="text-nowrap">{{ c.signed_date|dt }}</td>
           <td>
             {% if c.contractor %}
               <a href="{{ url_for('contractors.detail', contractor_id=c.contractor.id) }}">{{ c.contractor_name }}</a>
@@ -83,44 +93,96 @@
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
           <td>{{ contract_status_badge(c) }}</td>
           <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
+          <td class="text-end">
+            <a class="btn btn-outline-secondary btn-sm"
+               href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}"
+               title="Редактировать договор" aria-label="Редактировать договор">
+              <i class="fa-solid fa-pen"></i>
+            </a>
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="7" class="text-muted">Договоров нет</td></tr>
+        <tr><td colspan="8" class="text-muted">Договоров нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <div class="tab-pane fade" id="tab-tasks">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>Задача</th><th>Исполнитель</th><th>Срок</th>
-        <th>Приоритет</th><th>Статус</th><th>Дата создания</th></tr></thead>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light"><tr><th>Задача</th><th>Исполнитель</th><th>Срок</th>
+        <th>Приоритет</th><th>Статус</th><th>Дата создания</th>
+        <th class="text-end"></th></tr></thead>
       <tbody>
       {% for t in tasks %}
         <tr>
-          <td><a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(70) }}</a></td>
+          <td><a href="{{ url_for('tasks.detail', task_id=t.id) }}">{{ t.title|truncate(70) }}</a>
+            {% if t.reporting_deadline_id %}<span class="badge text-bg-info"
+              title="Создана автоматически по сроку отчётности">авто</span>{% endif %}</td>
           <td>{{ t.assignee.fio if t.assignee else '—' }}</td>
-          <td class="text-nowrap">{{ t.due_date|dt }}</td>
+          <td class="text-nowrap">{{ t.due_date|dt if t.due_date else '—' }}
+            {% if t.days_left is not none and t.status != 'done' %}
+              {% if t.days_left < 0 %}<span class="badge text-bg-danger">−{{ -t.days_left }} дн.</span>
+              {% elif t.days_left <= 3 %}<span class="badge text-bg-warning">{{ t.days_left }} дн.</span>{% endif %}
+            {% endif %}</td>
           <td>{{ task_priority_badge(t) }}</td>
-          <td>{{ t.status_label }}</td>
+          <td>{{ task_status_badge(t) }}</td>
           <td class="text-nowrap">{{ t.created_at|dtfull }}</td>
+          <td class="text-end text-nowrap">
+            {% set status_titles = {'new': 'новая', 'in_progress': 'в работе',
+                                    'done': 'выполнена'} %}
+            {% set prev_status = t.prev_status %}
+            {% set next_status = t.next_status %}
+            <form class="d-inline" method="post"
+                  action="{{ url_for('tasks.change_status', task_id=t.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="status" value="{{ prev_status or '' }}">
+              <button class="btn btn-sm btn-outline-secondary"
+                      title="{{ ('Назад: ' ~ status_titles[prev_status]) if prev_status else 'Предыдущего статуса нет' }}"
+                      aria-label="Перевести задачу на предыдущий статус"
+                      {% if not prev_status %}disabled{% endif %}><i class="fa-solid fa-arrow-left"></i></button>
+            </form>
+            <form class="d-inline" method="post"
+                  action="{{ url_for('tasks.change_status', task_id=t.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="status" value="{{ next_status or '' }}">
+              <button class="btn btn-sm btn-outline-secondary"
+                      title="{{ ('Вперёд: ' ~ status_titles[next_status]) if next_status else 'Следующего статуса нет' }}"
+                      aria-label="Перевести задачу на следующий статус"
+                      {% if not next_status %}disabled{% endif %}><i class="fa-solid fa-arrow-right"></i></button>
+            </form>
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{{ url_for('tasks.edit_task', task_id=t.id) }}"
+               title="Редактировать задачу"
+               aria-label="Редактировать задачу"><i class="fa-solid fa-pencil"></i></a>
+            <form class="d-inline" method="post"
+                  action="{{ url_for('tasks.delete_task', task_id=t.id) }}"
+                  onsubmit="return confirm('Удалить задачу?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fa-solid fa-xmark"></i></button>
+            </form>
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="text-muted">Задач нет</td></tr>
+        <tr><td colspan="7" class="text-muted">Задач нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <div class="tab-pane fade" id="tab-docs">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
-        <th>Контрагент</th><th>Статус</th><th>Ссылка</th><th>Дата создания</th></tr></thead>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light"><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
+        <th>Контрагент</th><th>Статус</th><th>Дата создания</th><th></th></tr></thead>
       <tbody>
       {% for d in documents %}
         <tr>
-          <td>{{ d.doc_type }}</td>
-          <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.number }}</a></td>
+          <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.doc_type }}</a></td>
+          <td>{{ d.number }}</td>
           <td class="text-nowrap">{{ d.doc_date|dt }}</td>
           <td>
             {% if d.contractor %}
@@ -128,9 +190,19 @@
             {% else %}—{% endif %}
           </td>
           <td>{{ document_status_badge(d) }}</td>
-          <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
-              rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
           <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
+          <td class="text-end text-nowrap">
+            {% if d.external_url %}
+            <a class="btn btn-sm btn-primary" href="{{ d.external_url }}"
+               target="_blank" rel="noopener noreferrer"
+               title="Открыть документ в 1С"
+               aria-label="Открыть документ в 1С">1С</a>
+            {% endif %}
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{{ url_for('documents.edit_document', document_id=d.id) }}"
+               title="Редактировать документ"
+               aria-label="Редактировать документ"><i class="fa-solid fa-pencil"></i></a>
+          </td>
         </tr>
       {% else %}
         <tr><td colspan="7" class="text-muted">Документы из «1С:Документооборот»
@@ -138,6 +210,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
 {% endblock %}

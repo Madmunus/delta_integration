@@ -36,6 +36,26 @@ def current_periods(today: date):
     return periods
 
 
+def next_due_date(deadline, today: date, months_back: int = 18,
+                  months_ahead: int = 24):
+    """Ближайший срок сдачи формы начиная с today.
+
+    Перебираем отчётные периоды с запасом назад: у ежемесячных и
+    квартальных форм ближайший срок может относиться к периоду,
+    который закончился несколько месяцев назад (например, срок
+    25.11 — за октябрь или за III квартал). Смещение периода
+    допускается до 6 месяцев, поэтому запас назад должен покрывать
+    полный цикл периодичности плюс смещение.
+    """
+    for m in range(-months_back, months_ahead):
+        y = today.year + (today.month + m - 1) // 12
+        mo = (today.month + m - 1) % 12 + 1
+        due = deadline.due_date_for_period(date(y, mo, 1))
+        if due >= today:
+            return due
+    return None
+
+
 def generate_deadline_tasks(lead_days: int = 7) -> list:
     """Сформировать задачи по приближающимся срокам отчётности.
 
@@ -56,6 +76,13 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
             if not (today <= due <= _shift_days(today, lead_days)):
                 continue
             for client in clients:
+                # Правило системы: задача не может быть без исполнителя,
+                # поэтому клиента без ответственного пропускаем
+                if not client.responsible_id:
+                    logger.info('Клиент %s без ответственного: задача '
+                                'по форме %s не создана',
+                                client.name, deadline.name)
+                    continue
                 # Дедупликация: та же форма + тот же период + тот же клиент
                 exists = Task.query.filter_by(
                     client_id=client.id,

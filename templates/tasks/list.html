@@ -5,10 +5,10 @@
 {% from 'tasks/_status.html' import task_status_badge %}
 {% from 'tasks/_priority.html' import task_priority_badge %}
 {% block content %}
-{% set filter_params = dict(q=search, status=status, assignee=assignee_id,
-                            mine='1' if mine else '',
-                            overdue='1' if overdue else '',
-                            date_from=date_from, date_to=date_to) %}
+{% set filter_params = dict(q=search, status=status,
+                            assignee='mine' if mine else (assignee_id or ''),
+                            client=client_id, priority=priority,
+                            date_range=date_range) %}
 {% set sort_params = dict(filter_params, page=pagination.page) %}
 {% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -21,8 +21,8 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
   {% endif %}
-  <div class="row g-2 mb-2">
-    <div class="col-12 col-md-5 col-lg-4">
+  <div class="row g-2 mb-3">
+    <div class="col-12 col-md-4 col-lg-2">
       <div class="input-group">
         <input class="form-control" name="q" value="{{ search }}"
                placeholder="Поиск по таблице"
@@ -32,11 +32,49 @@
                 onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
       </div>
     </div>
+    <div class="col-6 col-md-2 col-lg-2">
+      <select class="form-select" name="client" aria-label="Клиент">
+        <option value="">Все клиенты</option>
+        {% for c in clients %}
+          <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-6 col-md-2 col-lg-2">
+      <select class="form-select" name="assignee" aria-label="Исполнитель">
+        <option value="">Все исполнители</option>
+        <option value="mine" {{ 'selected' if mine }}>Только мои</option>
+        {% for u in users %}
+          <option value="{{ u.id }}" {{ 'selected' if assignee_id == u.id }}>{{ u.fio }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    {% set date_label = 'Срок' %}
     {% include '_date_range.html' %}
-    <div class="col-12 col-md-3 col-lg-3 d-flex gap-2">
-      <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+    <div class="col-6 col-md-2 col-lg-2">
+      <select class="form-select" name="priority" aria-label="Приоритет">
+        <option value="">Все приоритеты</option>
+        {% for code, label in priorities.items() %}
+          <option value="{{ code }}" {{ 'selected' if priority == code }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-2 col-lg-2">
+      <select class="form-select" name="status" aria-label="Статус задачи">
+        <option value="">Все статусы</option>
+        <option value="open" {{ 'selected' if status == 'open' }}>Открытые</option>
+        <option value="overdue" {{ 'selected' if status == 'overdue' }}>Просроченные</option>
+        <option value="new" {{ 'selected' if status == 'new' }}>Новые</option>
+        <option value="in_progress" {{ 'selected' if status == 'in_progress' }}>В работе</option>
+        <option value="done" {{ 'selected' if status == 'done' }}>Выполнены</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-4 col-lg-3 d-flex gap-2">
+      <button class="btn btn-secondary" title="Применить фильтр"
               aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
-      <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+      <a class="btn btn-outline-secondary" title="Сбросить фильтр"
          aria-label="Сбросить фильтр"
          href="{{ url_for('tasks.list_tasks') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
       <a class="btn btn-primary" href="{{ url_for('tasks.edit_task') }}"
@@ -49,41 +87,6 @@
               title="Удалить все задачи" aria-label="Удалить все задачи"
               onclick="return confirm('Удалить все задачи? Действие необратимо.')"><i class="fa-solid fa-xmark"></i></button>
       {% endif %}
-    </div>
-  </div>
-  <div class="row g-2 mb-3">
-    <div class="col-6 col-md-3 col-lg-2">
-      <select class="form-select" name="status" aria-label="Статус задачи">
-        <option value="">Все статусы</option>
-        <option value="open" {{ 'selected' if status == 'open' }}>Открытые</option>
-        <option value="new" {{ 'selected' if status == 'new' }}>Новые</option>
-        <option value="in_progress" {{ 'selected' if status == 'in_progress' }}>В работе</option>
-        <option value="done" {{ 'selected' if status == 'done' }}>Выполнены</option>
-      </select>
-    </div>
-    {% if current_user.is_admin %}
-    <div class="col-6 col-md-3 col-lg-2">
-      <select class="form-select" name="assignee" aria-label="Исполнитель">
-        <option value="">Все исполнители</option>
-        {% for u in users %}
-          <option value="{{ u.id }}" {{ 'selected' if assignee_id == u.id }}>{{ u.fio }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-    <div class="col-6 col-md-3 col-lg-2">
-      <div class="form-check mt-2">
-        <input class="form-check-input" type="checkbox" name="mine" value="1" id="mine"
-               {{ 'checked' if mine }}>
-        <label class="form-check-label" for="mine">Только мои</label>
-      </div>
-    </div>
-    <div class="col-6 col-md-3 col-lg-2">
-      <div class="form-check mt-2">
-        <input class="form-check-input" type="checkbox" name="overdue" value="1"
-               id="overdue" {{ 'checked' if overdue }}>
-        <label class="form-check-label" for="overdue">Просроченные</label>
-      </div>
     </div>
   </div>
 </form>

@@ -1,33 +1,13 @@
-{#- Фильтр по дате создания: диапазон «с — по» с календарём. -#}
-<div class="col-6 col-md-3 col-lg-2">
-  <div class="input-group position-relative">
-    <span class="input-group-text px-2">с</span>
-    <input class="form-control" type="text" name="date_from" value="{{ date_from }}"
-           placeholder="дд.мм.гггг" autocomplete="off"
-           title="Дата создания: с" aria-label="Дата создания с">
-    <input type="date" class="delta-date-proxy" tabindex="-1" aria-hidden="true"
-           onchange="deltaApplyDatePick(this)">
+{#- Фильтр по дате: единое поле с диапазоном «с — по» и календарём. -#}
+{% set date_label = date_label|default('Дата создания') %}
+<div class="col-12 col-md-4 col-lg-3 position-relative">
+  <div class="input-group">
+    <input class="form-control delta-range-input" type="text" name="date_range"
+           value="{{ date_range }}" placeholder="дд.мм.гггг — дд.мм.гггг"
+           autocomplete="off" title="{{ date_label }}: с — по"
+           aria-label="{{ date_label }}: с — по">
     <button class="btn btn-outline-secondary px-2" type="button"
-            title="Выбрать дату «с» из календаря" aria-label="Выбрать дату «с» из календаря"
-            onclick="deltaOpenDatePicker(this)"><i class="fa-solid fa-calendar-days"></i></button>
-    <button class="btn btn-outline-secondary px-2" type="button"
-            title="Очистить дату «с»" aria-label="Очистить дату «с»"
-            onclick="this.form.querySelector('input[name=date_from]').value=''; this.form.querySelector('input[name=date_from]').focus();"><i class="fa-solid fa-xmark"></i></button>
-  </div>
-</div>
-<div class="col-6 col-md-3 col-lg-2">
-  <div class="input-group position-relative">
-    <span class="input-group-text px-2">по</span>
-    <input class="form-control" type="text" name="date_to" value="{{ date_to }}"
-           placeholder="дд.мм.гггг" autocomplete="off"
-           title="Дата создания: по" aria-label="Дата создания по">
-    <input type="date" class="delta-date-proxy" tabindex="-1" aria-hidden="true"
-           onchange="deltaApplyDatePick(this)">
-    <button class="btn btn-outline-secondary px-2" type="button"
-            title="Выбрать дату «по» из календаря" aria-label="Выбрать дату «по» из календаря"
-            onclick="deltaOpenDatePicker(this)"><i class="fa-solid fa-calendar-days"></i></button>
-    <button class="btn btn-outline-secondary px-2" type="button"
-            title="Очистить дату «по»" aria-label="Очистить дату «по»"
-            onclick="this.form.querySelector('input[name=date_to]').value=''; this.form.querySelector('input[name=date_to]').focus();"><i class="fa-solid fa-xmark"></i></button>
+            title="Очистить диапазон дат" aria-label="Очистить диапазон дат"
+            onclick="deltaClearRange(this)"><i class="fa-solid fa-xmark"></i></button>
   </div>
 </div>

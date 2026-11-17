@@ -4,7 +4,7 @@ from flask import (Blueprint, flash, redirect, render_template, request,
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
-from engine.dates import apply_created_at_range
+from engine.dates import apply_date_range
 from engine.forms import ContractorForm
 from engine.models import Client, Contract, Contractor, Document, db
 
@@ -32,10 +32,13 @@ def list_contractors():
                          Contractor.inn.ilike(like),
                          Contractor.kpp.ilike(like),
                          Contractor.notes.ilike(like)))
-    date_from = request.args.get('date_from') or ''
-    date_to = request.args.get('date_to') or ''
-    q, date_from, date_to = apply_created_at_range(
-        q, Contractor.created_at, date_from, date_to)
+    # Фильтр по активности записи: активные / архивные
+    status = request.args.get('status') or ''
+    if status not in ('active', 'archived'):
+        status = ''
+    if status:
+        q = q.filter(Contractor.status == status)
+    q, date_range = apply_date_range(q, Contractor.created_at, request.args)
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
     # и отключена (сортировка по умолчанию: по наименованию).
@@ -61,7 +64,8 @@ def list_contractors():
     return render_template('contractors/list.html',
                            pagination=pagination,
                            search=search,
-                           date_from=date_from, date_to=date_to,
+                           status=status,
+                           date_range=date_range,
                            sort=sort, direction=direction)
 
 

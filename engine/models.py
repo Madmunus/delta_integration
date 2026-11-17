@@ -110,8 +110,26 @@ class Client(db.Model):
         return self.status == 'active'
 
     @property
+    def can_have_open_contracts(self) -> bool:
+        """Проекты и действующие договоры допустимы только у активных."""
+        return self.is_active
+
+    @property
     def active_contracts(self):
         return [c for c in self.contracts if c.status == 'active']
+
+    def close_open_contracts(self) -> int:
+        """Закрыть проекты и действующие договоры клиента.
+
+        Правило: у архивного клиента не может быть проектов договоров
+        и действующих договоров. Возвращает число закрытых договоров.
+        """
+        closed = 0
+        for contract in self.contracts:
+            if contract.status in Contract.OPEN_STATUSES:
+                contract.status = 'closed'
+                closed += 1
+        return closed
 
     @property
     def has_odata(self) -> bool:
@@ -158,6 +176,9 @@ class Contractor(db.Model):
 class Contract(db.Model):
     __tablename__ = 'contracts'
 
+    # Статусы, при которых договор считается открытым (не завершён)
+    OPEN_STATUSES = ('draft', 'active')
+
     # Соответствие статуса и цвета бейджа (Bootstrap)
     STATUS_BADGES = {
         'draft': 'text-bg-light text-dark',  # проект
@@ -187,6 +208,11 @@ class Contract(db.Model):
     contractor = db.relationship('Contractor', back_populates='contracts')
 
     @property
+    def is_open(self) -> bool:
+        """Проект или действующий договор (не завершён)."""
+        return self.status in self.OPEN_STATUSES
+
+    @property
     def status_label(self):
         return {'draft': 'проект', 'active': 'действующий', 'closed': 'завершённый'}.get(
             self.status, self.status)
@@ -208,6 +234,18 @@ class Contract(db.Model):
 
     def __repr__(self):
         return f'<Contract №{self.number}>'
+
+
+def close_archived_client_contracts() -> int:
+    """Закрыть проекты и действующие договоры у всех архивных клиентов.
+
+    Правило системы: у архивного клиента не может быть проектов договоров
+    и действующих договоров. Возвращает число закрытых договоров.
+    """
+    closed = 0
+    for client in Client.query.filter_by(status='archived').all():
+        closed += client.close_open_contracts()
+    return closed
 
 
 # ----------------------------------------------------------------------------
@@ -299,7 +337,9 @@ class Task(db.Model):
     title = db.Column(db.String(512), nullable=False)
     description = db.Column(db.Text, nullable=False, default='')
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), index=True)
-    assignee_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    # Правило системы: у задачи всегда есть исполнитель
+    assignee_id = db.Column(db.Integer, db.ForeignKey('users.id'),
+                            nullable=False, index=True)
     due_date = db.Column(db.Date, index=True)
     priority = db.Column(db.Integer, nullable=False, default=2)  # 1 высокий .. 3 низкий
     status = db.Column(db.String(20), nullable=False, default=STATUS_NEW, index=True)
@@ -370,6 +410,29 @@ class Task(db.Model):
 
     def __repr__(self):
         return f'<Task {self.title[:40]}>'
+
+
+def assign_missing_task_assignees() -> int:
+    """Назначить исполнителя задачам, у которых его нет.
+
+    Правило системы: задача не может быть без исполнителя. Задаче без
+    исполнителя назначается ответственный её клиента, а если он не задан
+    или отключён — первый активный пользователь. Возвращает число
+    исправленных задач.
+    """
+    missing = Task.query.filter(Task.assignee_id.is_(None)).all()
+    if not missing:
+        return 0
+    active_ids = [u.id for u in User.query.filter_by(is_active_flag=True)
+                  .order_by(User.id).all()]
+    if not active_ids:
+        return 0
+    fallback_id = active_ids[0]
+    for task in missing:
+        responsible_id = task.client.responsible_id if task.client else None
+        task.assignee_id = (responsible_id if responsible_id in active_ids
+                            else fallback_id)
+    return len(missing)
 
 
 # ----------------------------------------------------------------------------

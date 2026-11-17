@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 mb-0">Пользователи <span class="text-muted">({{ users_total }})</span></h1>
-  <a class="btn btn-primary" href="{{ url_for('users.add_user') }}">+ Добавить пользователя</a>
+  <a class="btn btn-primary" href="{{ url_for('users.add_user') }}"><i class="fa-solid fa-plus"></i> Добавить пользователя</a>
 </div>
 
 <div class="alert alert-info">
@@ -46,10 +46,10 @@
               action="{{ url_for('users.toggle_user', user_id=u.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {% if u.is_active_flag %}
-            <button class="btn btn-sm btn-outline-danger"
-                    onclick="return confirm('Отключить пользователя {{ u.fio }}?')">Отключить</button>
+            <button class="btn btn-sm btn-outline-success"
+                    onclick="return confirm('Отключить пользователя {{ u.fio }}?')"><i class="fa-solid fa-toggle-on"></i></button>
           {% else %}
-            <button class="btn btn-sm btn-outline-success">Включить</button>
+            <button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-toggle-off"></i></button>
           {% endif %}
         </form>
         {% else %}

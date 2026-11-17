@@ -4,9 +4,9 @@ from datetime import date
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 
-from engine.dates import apply_created_at_range
+from engine.dates import apply_date_range
 from engine.forms import TaskForm
 from engine.models import Client, Task, User, db
 
@@ -31,6 +31,18 @@ SORTABLE_COLUMNS = {
 }
 
 
+# Порядок статусов по умолчанию: Новая → В работе → Выполнена
+DEFAULT_STATUS_ORDER = case(
+    (Task.status == Task.STATUS_NEW, 0),
+    (Task.status == Task.STATUS_IN_PROGRESS, 1),
+    (Task.status == Task.STATUS_DONE, 2),
+    else_=3,
+)
+
+# Приоритеты для фильтра: код -> подпись
+PRIORITY_LABELS = {1: 'Высокий', 2: 'Средний', 3: 'Низкий'}
+
+
 def _task_filter(q):
     """ФТ-1: сотрудник видит только свои задачи."""
     if not current_user.is_admin:
@@ -45,10 +57,25 @@ def list_tasks():
     q = (_task_filter(Task.query)
          .outerjoin(Client, Task.client_id == Client.id)
          .outerjoin(User, Task.assignee_id == User.id))
-    status = request.args.get('status') or ''
-    assignee_id = request.args.get('assignee', type=int)
-    mine = request.args.get('mine') == '1'
-    overdue = request.args.get('overdue') == '1'
+    status = (request.args.get('status') or '').strip()
+    # Старый параметр «Просроченные» поддерживается как псевдостатус
+    if not status and request.args.get('overdue') == '1':
+        status = 'overdue'
+
+    assignee_param = (request.args.get('assignee') or '').strip()
+    # Старый параметр «Только мои» поддерживается как вариант исполнителя
+    if not assignee_param and request.args.get('mine') == '1':
+        assignee_param = 'mine'
+    mine = assignee_param == 'mine'
+    assignee_id = None
+    if assignee_param and not mine:
+        try:
+            assignee_id = int(assignee_param)
+        except ValueError:
+            assignee_id = None
+
+    client_id = request.args.get('client', type=int)
+    priority = request.args.get('priority', type=int)
 
     search = (request.args.get('q') or '').strip()
     if search:
@@ -67,25 +94,28 @@ def list_tasks():
     if status == 'open':
         # «Открытые»: новые + в работе
         q = q.filter(Task.status.in_([Task.STATUS_NEW, Task.STATUS_IN_PROGRESS]))
-    elif status:
-        q = q.filter(Task.status == status)
-    if assignee_id:
-        q = q.filter(Task.assignee_id == assignee_id)
-    if mine:
-        q = q.filter(Task.assignee_id == current_user.id)
-    if overdue:
+    elif status == 'overdue':
         # Просрочка — не статус, а признак: срок истёк, задача не выполнена
         q = q.filter(Task.status != Task.STATUS_DONE,
                      Task.due_date.isnot(None),
                      Task.due_date < date.today())
+    elif status:
+        q = q.filter(Task.status == status)
+    if assignee_id:
+        q = q.filter(Task.assignee_id == assignee_id)
+    if client_id:
+        q = q.filter(Task.client_id == client_id)
+    if priority in PRIORITY_LABELS:
+        q = q.filter(Task.priority == priority)
+    if mine:
+        q = q.filter(Task.assignee_id == current_user.id)
 
-    date_from = request.args.get('date_from') or ''
-    date_to = request.args.get('date_to') or ''
-    q, date_from, date_to = apply_created_at_range(
-        q, Task.created_at, date_from, date_to)
+    # Фильтр по сроку (диапазон «с — по» в едином поле)
+    q, date_range = apply_date_range(q, Task.due_date, request.args)
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
-    # и отключена (сортировка по умолчанию: сначала ближайший срок).
+    # и отключена. По умолчанию: статус (Новая → В работе → Выполнена),
+    # затем приоритет (Высокий → Средний → Низкий), затем срок по возрастанию.
     sort = request.args.get('sort') or None
     direction = request.args.get('dir') or None
     if sort not in SORTABLE_COLUMNS:
@@ -100,18 +130,24 @@ def list_tasks():
                       else order_col.asc()).nullslast()
         order_by = (order_expr, Task.id.asc())
     else:
-        order_by = (Task.due_date.asc().nullslast(), Task.priority.asc())
+        order_by = (DEFAULT_STATUS_ORDER.asc(),
+                    Task.priority.asc().nullslast(),
+                    Task.due_date.asc().nullslast(),
+                    Task.id.asc())
 
     page = request.args.get('page', 1, type=int)
     pagination = q.order_by(*order_by).paginate(
         page=page, per_page=20, error_out=False)
     users = User.query.order_by(User.fio).all()
+    clients = _visible_client_ids()
     return render_template('tasks/list.html',
                            pagination=pagination,
-                           users=users, status=status,
-                           assignee_id=assignee_id, mine=mine,
-                           overdue=overdue, search=search,
-                           date_from=date_from, date_to=date_to,
+                           users=users, clients=clients, status=status,
+                           assignee_id=assignee_id, client_id=client_id,
+                           priority=priority, priorities=PRIORITY_LABELS,
+                           mine=mine,
+                           search=search,
+                           date_range=date_range,
                            sort=sort, direction=direction)
 
 
@@ -140,7 +176,6 @@ def edit_task(task_id=None):
     form.client_id.choices.insert(0, (0, '— без привязки —'))
     form.assignee_id.choices = [(u.id, u.fio) for u in
                                 User.query.order_by(User.fio).all()]
-    form.assignee_id.choices.insert(0, (0, '— не назначен —'))
 
     if request.method == 'GET':
         client_param = request.args.get('client', type=int)
@@ -151,13 +186,13 @@ def edit_task(task_id=None):
             form.client_id.data = client_param
         else:
             form.client_id.data = 0
-        form.assignee_id.data = task.assignee_id or 0
+        form.assignee_id.data = task.assignee_id or current_user.id
 
     if form.validate_on_submit():
         task.title = form.title.data.strip()
         task.description = form.description.data or ''
         task.client_id = form.client_id.data or None
-        task.assignee_id = form.assignee_id.data or None
+        task.assignee_id = form.assignee_id.data
         task.due_date = form.due_date.data
         task.priority = form.priority.data
         task.status = form.status.data

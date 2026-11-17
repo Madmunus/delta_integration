@@ -48,10 +48,11 @@
   </div>
 
   <div class="tab-pane fade" id="tab-contracts">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>№</th><th>Дата</th><th>Клиент</th>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light"><tr><th>Номер</th><th>Дата</th><th>Клиент</th>
         <th class="text-end">Стоимость</th><th>Срок действия</th><th>Статус</th>
-        <th>Дата создания</th></tr></thead>
+        <th>Дата создания</th><th class="text-end"></th></tr></thead>
       <tbody>
       {% for c in contracts %}
         <tr>
@@ -66,23 +67,32 @@
           <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
           <td>{{ contract_status_badge(c) }}</td>
           <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
+          <td class="text-end">
+            <a class="btn btn-outline-secondary btn-sm"
+               href="{{ url_for('contracts.edit_contract', contract_id=c.id) }}"
+               title="Редактировать договор" aria-label="Редактировать договор">
+              <i class="fa-solid fa-pen"></i>
+            </a>
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="7" class="text-muted">Договоров с этим контрагентом нет</td></tr>
+        <tr><td colspan="8" class="text-muted">Договоров с этим контрагентом нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <div class="tab-pane fade" id="tab-docs">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
-        <th>Клиент</th><th>Статус</th><th>Ссылка</th><th>Дата создания</th></tr></thead>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light"><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>
+        <th>Клиент</th><th>Статус</th><th>Дата создания</th><th></th></tr></thead>
       <tbody>
       {% for d in documents %}
         <tr>
-          <td>{{ d.doc_type }}</td>
-          <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.number }}</a></td>
+          <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.doc_type }}</a></td>
+          <td>{{ d.number }}</td>
           <td class="text-nowrap">{{ d.doc_date|dt }}</td>
           <td>
             {% if d.client %}
@@ -90,15 +100,26 @@
             {% else %}—{% endif %}
           </td>
           <td>{{ document_status_badge(d) }}</td>
-          <td>{% if d.external_url %}<a href="{{ d.external_url }}" target="_blank"
-              rel="noopener noreferrer">открыть в 1С:Документооборот</a>{% else %}—{% endif %}</td>
           <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
+          <td class="text-end text-nowrap">
+            {% if d.external_url %}
+            <a class="btn btn-sm btn-primary" href="{{ d.external_url }}"
+               target="_blank" rel="noopener noreferrer"
+               title="Открыть документ в 1С"
+               aria-label="Открыть документ в 1С">1С</a>
+            {% endif %}
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{{ url_for('documents.edit_document', document_id=d.id) }}"
+               title="Редактировать документ"
+               aria-label="Редактировать документ"><i class="fa-solid fa-pencil"></i></a>
+          </td>
         </tr>
       {% else %}
         <tr><td colspan="7" class="text-muted">Документов с этим контрагентом нет</td></tr>
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
 {% endblock %}

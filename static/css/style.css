@@ -29,20 +29,204 @@ body {
   border-color: #e3e6ea;
 }
 
+/* Панель управления: блок реестра — первые записи слева, сводка справа */
+.delta-registry .card-header {
+  background-color: #fff;
+  border-bottom-color: #e3e6ea;
+}
+
+.delta-part-title {
+  margin-bottom: .5rem;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #6c757d;
+}
+
+.delta-preview-table {
+  font-size: .875rem;
+}
+
+.delta-preview-table th {
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+/* Плитка сводки: значение, подпись, при наличии — ссылка на реестр */
+.delta-stat {
+  display: block;
+  height: 100%;
+  padding: .55rem .7rem;
+  border: 1px solid #e3e6ea;
+  border-radius: .5rem;
+  background-color: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.delta-stat:hover {
+  border-color: #adb5bd;
+  background-color: #f8f9fa;
+}
+
+/* Плитка сводного отчёта — ссылка на реестр с фильтром */
+a.delta-report-card:hover {
+  border-color: #adb5bd;
+  background-color: #f8f9fa;
+}
+
+/* Раскрывающиеся подробные данные в сводных отчётах.
+   Нулевой отступ — только у внешней ячейки-обёртки: у вложенной
+   таблицы остаются отступы между столбцами. */
+.delta-report-detail > td {
+  padding: 0;
+  border-top: 0;
+}
+
+.delta-report-detail table td,
+.delta-report-detail table th {
+  padding: .35rem .6rem;
+}
+
+.delta-report-toggle i {
+  transition: transform .15s ease;
+}
+
+.delta-report-toggle[aria-expanded="true"] i {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delta-report-toggle i {
+    transition: none;
+  }
+}
+
+.delta-stat-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.delta-stat-label {
+  font-size: .78rem;
+  color: #6c757d;
+}
+
 .progress {
   height: 1.1rem;
   font-size: .75rem;
 }
 
-/* Скрытое поле-прокси для нативного календаря в фильтрах по дате */
-.delta-date-proxy {
+/* Календарь выбора диапазона дат в фильтрах */
+.delta-range-popover {
   position: absolute;
+  top: calc(100% + 4px);
   left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
+  z-index: 1080;
+  width: 17.5rem;
+  padding: .5rem;
+  background: #fff;
+  border: 1px solid #d7dbe0;
+  border-radius: .5rem;
+  box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .15);
+}
+
+.delta-range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .25rem;
+  margin-bottom: .35rem;
+}
+
+.delta-range-title {
+  font-size: .9rem;
+  font-weight: 600;
+}
+
+.delta-range-weekdays,
+.delta-range-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.delta-range-weekdays span {
+  padding: .15rem 0;
+  text-align: center;
+  font-size: .72rem;
+  color: #6c757d;
+}
+
+.delta-range-day,
+.delta-range-empty {
+  height: 1.9rem;
+}
+
+.delta-range-day {
   padding: 0;
   border: 0;
-  opacity: 0;
-  pointer-events: none;
+  border-radius: .35rem;
+  background: transparent;
+  font-size: .8rem;
+  color: #212529;
+}
+
+.delta-range-day:hover {
+  background: #e9ecef;
+}
+
+.delta-range-day.is-today {
+  box-shadow: inset 0 0 0 1px #0d6efd;
+}
+
+.delta-range-day.is-preview {
+  background: #e7f1ff;
+}
+
+.delta-range-day.is-start,
+.delta-range-day.is-end {
+  background: #0d6efd;
+  color: #fff;
+}
+
+.delta-range-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-top: .4rem;
+}
+
+.delta-range-hint {
+  font-size: .75rem;
+  color: #6c757d;
+}
+
+/* Пошаговый вывод результатов на странице «Тестирование» */
+@keyframes delta-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.delta-step-enter {
+  animation: delta-step-in .18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delta-step-enter {
+    animation: none;
+  }
 }

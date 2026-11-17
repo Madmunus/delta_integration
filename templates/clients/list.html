@@ -5,13 +5,13 @@
 
 {% block content %}
 {% set sort_params = dict(q=search, status=status, responsible=responsible,
-                          date_from=date_from, date_to=date_to,
+                          date_range=date_range,
                           page=pagination.page) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h1 class="h4 mb-0">Клиенты <span class="text-muted">({{ pagination.total }})</span></h1>
   {{ render_pagination(pagination, 'clients.list_clients',
        dict(q=search, status=status, responsible=responsible,
-            date_from=date_from, date_to=date_to,
+            date_range=date_range,
             sort=sort, dir=direction)) }}
 </div>
 
@@ -20,7 +20,7 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
   {% endif %}
-  <div class="col-12 col-md-4 {{ 'col-lg-2' if current_user.is_admin else 'col-lg-3' }}">
+  <div class="col-12 col-md-4 col-lg-2">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
              placeholder="Поиск по таблице"
@@ -50,8 +50,8 @@
   {% endif %}
   {% include '_date_range.html' %}
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
-    <button class="btn btn-secondary flex-fill"><i class="fa-solid fa-magnifying-glass"></i></button>
-    <a class="btn btn-outline-secondary flex-fill" href="{{ url_for('clients.list_clients') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
+    <button class="btn btn-secondary"><i class="fa-solid fa-magnifying-glass"></i></button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('clients.list_clients') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
 </form>
 

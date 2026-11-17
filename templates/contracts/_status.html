@@ -1,6 +1,12 @@
 {# Бейдж статуса договора: цвет берётся из Contract.STATUS_BADGES.
    Если из 1С пришёл текстовый статус, выводится он, а цвет определяется
-   нормализованным статусом договора. #}
+   нормализованным статусом договора. У архивного клиента показываем
+   внутренний статус («завершённый»), а исходный статус 1С — в подсказке. #}
 {% macro contract_status_badge(contract) -%}
+  {% if contract.client and not contract.client.is_active %}
+  <span class="badge {{ contract.status_badge_class }}"
+        {% if contract.status_1c %}title="Статус в 1С: {{ contract.status_1c }}"{% endif %}>{{ contract.status_label }}</span>
+  {% else %}
   <span class="badge {{ contract.status_badge_class }}">{{ contract.status_1c or contract.status_label }}</span>
+  {% endif %}
 {%- endmacro %}

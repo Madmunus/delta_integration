@@ -4,7 +4,8 @@
 {% from '_sort.html' import sort_link %}
 {% from 'documents/_status.html' import document_status_badge %}
 {% block content %}
-{% set filter_params = dict(q=search, date_from=date_from, date_to=date_to) %}
+{% set filter_params = dict(q=search, status=status, processed=processed,
+                            client=client_id, date_range=date_range) %}
 {% set sort_params = dict(filter_params, page=pagination.page) %}
 {% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -17,7 +18,7 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
   {% endif %}
-  <div class="col-12 col-md-5 col-lg-4">
+  <div class="col-12 col-md-4 col-lg-2">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
              placeholder="Поиск по таблице"
@@ -27,11 +28,37 @@
               onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
     </div>
   </div>
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="status" title="Статус документа">
+      <option value="">Все статусы</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {{ 'selected' if status == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% set date_label = 'Дата' %}
   {% include '_date_range.html' %}
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="client" aria-label="Клиент"
+            title="Клиент">
+      <option value="">Все клиенты</option>
+      {% for c in clients %}
+        <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="processed"
+            title="Признак «Обработан»" aria-label="Признак «Обработан»">
+      <option value="">Все по признаку «Обработан»</option>
+      <option value="yes" {{ 'selected' if processed == 'yes' }}>Обработан: Да</option>
+      <option value="no" {{ 'selected' if processed == 'no' }}>Обработан: Нет</option>
+    </select>
+  </div>
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
-    <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+    <button class="btn btn-secondary" title="Применить фильтр"
             aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
-    <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+    <a class="btn btn-outline-secondary" title="Сбросить фильтр"
        aria-label="Сбросить фильтр"
        href="{{ url_for('documents.list_documents') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
@@ -46,6 +73,7 @@
     <th>{{ sort_link('documents.list_documents', 'client', 'Клиент', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('documents.list_documents', 'contractor', 'Контрагент', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('documents.list_documents', 'status', 'Статус', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('documents.list_documents', 'processed', 'Обработан', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('documents.list_documents', 'created_at', 'Дата создания', sort, direction, sort_params) }}</th>
     <th></th>
   </tr></thead>
@@ -62,6 +90,9 @@
         {% else %}—{% endif %}
       </td>
       <td>{{ document_status_badge(d) }}</td>
+      <td>
+        <span class="badge {{ 'text-bg-success' if d.processed else 'text-bg-secondary' }}">{{ d.processed_label }}</span>
+      </td>
       <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
       <td class="text-end text-nowrap">
         {% if d.external_url %}
@@ -77,8 +108,8 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="text-muted">
-      {% if search or date_from or date_to %}Документы не найдены{% else %}Документов нет{% endif %}
+    <tr><td colspan="9" class="text-muted">
+      {% if search or status or processed or client_id or date_range %}Документы не найдены{% else %}Документов нет{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>

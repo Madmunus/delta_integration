@@ -19,22 +19,33 @@ SCENARIOS = [
     ('scenario_5', 'tests.scenario_5_tasks'),
     ('scenario_6', 'tests.scenario_6_deadlines'),
     ('scenario_7', 'tests.scenario_7_reports'),
+    ('scenario_8', 'tests.scenario_8_testing'),
 ]
 
 
 # Последние результаты запуска по пользователям — хранятся в памяти
-# процесса: объём отчёта превышает лимит cookie сессии (~4 КБ)
+# процесса: объём отчёта превышает лимит cookie сессии (~4 КБ).
+# Ключ включает базу приложения, чтобы результаты изолированных приложений
+# сценарных тестов не смешивались с результатами рабочей базы.
 _RESULTS = {}
+
+
+def _scope(user_id):
+    """Пространство результатов: рабочая база и тестовая — раздельно."""
+    from flask import current_app, has_app_context
+    if has_app_context():
+        return (current_app.config.get('SQLALCHEMY_DATABASE_URI'), user_id)
+    return ('cli', user_id)
 
 
 def store_results(user_id, results):
     """Сохранить результаты последнего запуска для пользователя."""
-    _RESULTS[user_id] = results
+    _RESULTS[_scope(user_id)] = results
 
 
 def load_results(user_id):
     """Результаты последнего запуска пользователя (или пустой словарь)."""
-    return _RESULTS.get(user_id) or {}
+    return _RESULTS.get(_scope(user_id)) or {}
 
 
 def registry():

@@ -4,8 +4,9 @@
 {% from '_pagination.html' import render_pagination %}
 {% from '_sort.html' import sort_link %}
 {% block content %}
-{% set filter_params = dict(q=search, status=status,
-                            date_from=date_from, date_to=date_to) %}
+{% set filter_params = dict(q=search, status=status, processed=processed,
+                            client=client_id, contractor=contractor_id,
+                            date_range=date_range) %}
 {% set sort_params = dict(filter_params, page=pagination.page) %}
 {% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -18,7 +19,7 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
   {% endif %}
-  <div class="col-12 col-md-4 col-lg-3">
+  <div class="col-12 col-md-4 col-lg-2">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
              placeholder="Поиск по таблице"
@@ -28,7 +29,27 @@
               onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
     </div>
   </div>
-  <div class="col-6 col-md-3 col-lg-3">
+  {% set date_label = 'Дата' %}
+  {% include '_date_range.html' %}
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="client" aria-label="Клиент"
+            title="Клиент">
+      <option value="">Все клиенты</option>
+      {% for c in clients %}
+        <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="contractor" aria-label="Контрагент"
+            title="Контрагент">
+      <option value="">Все контрагенты</option>
+      {% for c in contractors %}
+        <option value="{{ c.id }}" {{ 'selected' if contractor_id == c.id }}>{{ c.display_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2">
     <select class="form-select" name="status">
       <option value="">Все статусы</option>
       <option value="draft" {{ 'selected' if status == 'draft' }}>Проект</option>
@@ -36,11 +57,18 @@
       <option value="closed" {{ 'selected' if status == 'closed' }}>Завершённые</option>
     </select>
   </div>
-  {% include '_date_range.html' %}
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="processed"
+            title="Признак «Обработан»" aria-label="Признак «Обработан»">
+      <option value="">Все по признаку «Обработан»</option>
+      <option value="yes" {{ 'selected' if processed == 'yes' }}>Обработан: Да</option>
+      <option value="no" {{ 'selected' if processed == 'no' }}>Обработан: Нет</option>
+    </select>
+  </div>
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
-    <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+    <button class="btn btn-secondary" title="Применить фильтр"
             aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
-    <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+    <a class="btn btn-outline-secondary" title="Сбросить фильтр"
        aria-label="Сбросить фильтр"
        href="{{ url_for('contracts.list_contracts') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
@@ -56,6 +84,7 @@
     <th class="text-end">{{ sort_link('contracts.list_contracts', 'amount', 'Стоимость', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('contracts.list_contracts', 'start_date', 'Срок действия', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('contracts.list_contracts', 'status', 'Статус', sort, direction, sort_params) }}</th>
+    <th>{{ sort_link('contracts.list_contracts', 'processed', 'Обработан', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('contracts.list_contracts', 'created_at', 'Дата создания', sort, direction, sort_params) }}</th>
     <th class="text-end"></th>
   </tr></thead>
@@ -73,6 +102,9 @@
       <td class="text-end">{{ c.amount|money }}</td>
       <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
       <td>{{ contract_status_badge(c) }}</td>
+      <td>
+        <span class="badge {{ 'text-bg-success' if c.processed else 'text-bg-secondary' }}">{{ c.processed_label }}</span>
+      </td>
       <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
       <td class="text-end">
         <a class="btn btn-outline-secondary btn-sm"
@@ -83,8 +115,8 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="text-muted">
-      {% if search or status or date_from or date_to %}Договоры не найдены{% else %}Договоров нет{% endif %}
+    <tr><td colspan="10" class="text-muted">
+      {% if search or status or processed or client_id or contractor_id or date_range %}Договоры не найдены{% else %}Договоров нет{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>

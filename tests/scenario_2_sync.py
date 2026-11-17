@@ -6,8 +6,9 @@ Catalog_Контрагенты. Проверяется появление зап
 (DeletionMark) и отсутствие дублирования при повторном запуске.
 """
 import re
+from datetime import date
 
-from engine.models import Client, Contractor, OneCSetting, db
+from engine.models import Client, Contract, Contractor, OneCSetting, db
 from engine.sync import sync_clients
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
                         login, seed_users)
@@ -176,12 +177,13 @@ def run():
                 'найдена только «Альфа-Тест»' if filter_ok
                 else 'фильтр не работает')
     steps.check('>КПП</th>' not in contractors_html
-                and 'name="date_from"' in contractors_html
-                and 'name="date_to"' in contractors_html,
+                and 'name="date_range"' in contractors_html
+                and 'title="Дата создания: с — по"' in contractors_html,
                 'В реестре контрагентов нет столбца КПП и есть фильтр по дате',
-                'столбец КПП убран, добавлены поля «Дата создания: с / по»',
+                'столбец КПП убран, добавлено единое поле диапазона '
+                '«Дата создания: с — по»',
                 'столбец убран, фильтр по дате присутствует'
-                if 'name="date_from"' in contractors_html
+                if 'name="date_range"' in contractors_html
                 else 'фильтр по дате отсутствует')
     statuses_ok = ('sort=status' in contractors_html
                    and '<span class="badge text-bg-success">активный</span>'
@@ -346,6 +348,43 @@ def run():
                 'статус и ответственный отображаются в заголовке без подписи',
                 'заголовок карточки оформлен корректно'
                 if header_ok else 'заголовок карточки оформлен некорректно')
+
+    # --- Шаг 8.1. При архивации клиента открытые договоры закрываются ---
+    with app.app_context():
+        alpha = Client.query.filter_by(inn='7701111111').first()
+        alpha_id = alpha.id
+        db.session.add_all([
+            Contract(number='АРХ-АКТ', client_id=alpha_id,
+                     signed_date=date.today(), status='active'),
+            Contract(number='АРХ-ПРО', client_id=alpha_id,
+                     signed_date=date.today(), status='draft'),
+            Contract(number='АРХ-ЗАВ', client_id=alpha_id,
+                     signed_date=date.today(), status='closed'),
+        ])
+        db.session.commit()
+        # Повторная синхронизация, в которой «Альфа-Тест» помечена
+        # на удаление в 1С (DeletionMark = 1).
+        archived_organizations = [
+            {**row, 'DeletionMark': True}
+            if row['Ref_Key'] == ALPHA_KEY else row
+            for row in ORGANIZATIONS
+        ]
+    with app.app_context():
+        with fake_1c(organizations=archived_organizations,
+                     contractors=CONTRACTORS):
+            sync_clients()
+        alpha_status = db.session.get(Client, alpha_id).status
+        statuses = {c.number: c.status for c in
+                    Contract.query.filter_by(client_id=alpha_id).all()}
+        closed_count = sum(1 for value in statuses.values()
+                           if value == 'closed')
+    steps.check(
+        alpha_status == 'archived' and len(statuses) == 3
+        and closed_count == 3,
+        'При архивации клиента его проекты и действующие договоры закрываются',
+        'DeletionMark = 1 переводит клиента в архив, а его открытые '
+        'договоры — в «завершённые»',
+        f'статус клиента: {alpha_status}, договоры: {statuses}')
 
     # --- Шаг 9. Повторный запуск не создаёт дублей --------------------
     with app.app_context():

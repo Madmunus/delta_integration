@@ -18,10 +18,10 @@ def login():
         user = User.query.filter_by(email=form.email.data.strip().lower()).first()
         if user is None or not user.check_password(form.password.data):
             flash('Неверный email или пароль', 'danger')
-            return render_template('login.html', form=form), 401
+            return render_template('auth/login.html', form=form), 401
         if not user.is_active_flag:
             flash('Учётная запись отключена', 'warning')
-            return render_template('login.html', form=form)
+            return render_template('auth/login.html', form=form)
         login_user(user, remember=form.remember.data)
         flash(f'Добро пожаловать, {user.fio}!', 'success')
         next_url = request.args.get('next')

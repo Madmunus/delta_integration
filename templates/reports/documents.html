@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% from 'documents/_status.html' import document_status_badge %}
+{% block title %}Отчёт по документам{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <h1 class="h4 mb-1">Отчёт по документам</h1>
+  <p class="text-muted mb-0">
+    Документы из «1С:Документооборот» сгруппированы по клиентам:
+    количество по статусам и признаку «Обработан».
+  </p>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
+    <div class="display-6">{{ totals.clients }}</div>
+    <div class="text-muted">клиентов с документами</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents') }}"><div class="card-body">
+    <div class="display-6">{{ totals.documents }}</div>
+    <div class="text-muted">всего документов</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents', status='Черновик') }}"><div class="card-body">
+    <div class="display-6 text-secondary">{{ totals.draft }}</div>
+    <div class="text-muted">черновиков</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents', status='Зарегистрирован') }}"><div class="card-body">
+    <div class="display-6 text-primary">{{ totals.registered }}</div>
+    <div class="text-muted">зарегистрировано</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents', status='Проведён') }}"><div class="card-body">
+    <div class="display-6 text-success">{{ totals.conducted }}</div>
+    <div class="text-muted">проведено</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents', status='Отменён') }}"><div class="card-body">
+    <div class="display-6 text-danger">{{ totals.cancelled }}</div>
+    <div class="text-muted">отменено</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('documents.list_documents', processed='yes') }}"><div class="card-body">
+    <div class="display-6 text-info">{{ totals.processed }}</div>
+    <div class="text-muted">обработано</div>
+  </div></a></div>
+</div>
+
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead class="table-light"><tr>
+    <th>Клиент</th>
+    <th class="text-end">Документов</th>
+    <th class="text-end">Черновик</th>
+    <th class="text-end">Зарегистрирован</th>
+    <th class="text-end">Проведён</th>
+    <th class="text-end">Отменён</th>
+    <th class="text-end">Обработано</th>
+    <th class="text-end">Не обработано</th>
+    <th class="text-end"></th>
+  </tr></thead>
+  <tbody>
+  {% for g in groups %}
+    <tr>
+      <td>
+        <a href="{{ url_for('clients.detail', client_id=g.client.id) }}">{{ g.client.name }}</a>
+        {% if not g.client.is_active %}<span class="badge text-bg-secondary ms-1">архивный</span>{% endif %}
+      </td>
+      <td class="text-end"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id) }}">{{ g.total }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, status='Черновик') }}">{{ g.counts.get('Черновик', 0) }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, status='Зарегистрирован') }}">{{ g.counts.get('Зарегистрирован', 0) }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, status='Проведён') }}">{{ g.counts.get('Проведён', 0) }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, status='Отменён') }}">{{ g.counts.get('Отменён', 0) }}</a></td>
+      <td class="text-end text-nowrap"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
+      <td class="text-end text-nowrap"><a
+        href="{{ url_for('documents.list_documents', client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#client-documents-{{ g.client.id }}"
+                aria-expanded="false"
+                aria-controls="client-documents-{{ g.client.id }}"
+                title="Показать документы клиента"
+                aria-label="Показать документы клиента">
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      </td>
+    </tr>
+    <tr class="delta-report-detail">
+      <td colspan="9">
+        <div class="collapse" id="client-documents-{{ g.client.id }}">
+          <div class="border rounded-3 bg-light-subtle p-2 m-1">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr>
+                <th>Вид документа</th>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Контрагент</th>
+                <th>Статус</th>
+                <th>Обработан</th>
+              </tr></thead>
+              <tbody>
+              {% for d in g.documents %}
+                <tr>
+                  <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.doc_type }}</a></td>
+                  <td>{{ d.number }}</td>
+                  <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+                  <td>
+                    {% if d.contractor %}
+                      <a href="{{ url_for('contractors.detail', contractor_id=d.contractor_id) }}">{{ d.contractor.display_name }}</a>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>{{ document_status_badge(d) }}</td>
+                  <td>
+                    <span class="badge {{ 'text-bg-success' if d.processed else 'text-bg-secondary' }}">{{ d.processed_label }}</span>
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="text-muted">Документов нет</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

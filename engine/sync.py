@@ -14,7 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from engine.models import (Client, Contractor, Contract, Document,
-                           OneCSetting, db)
+                           OneCSetting, close_archived_client_contracts, db)
 from engine.odata_client import (DOCUMENT_ENTITIES, ODataError,
                                  client_for_client, client_for_settings,
                                  document_object_url)
@@ -152,7 +152,7 @@ def sync_clients() -> dict:
     """
     stats = {'created': 0, 'updated': 0,
              'contractors_created': 0, 'contractors_updated': 0,
-             'errors': []}
+             'contracts_closed': 0, 'errors': []}
     setting = OneCSetting.get()
     if not setting.odata_url:
         stats['errors'].append('Не настроено подключение к базе 1С:Предприятие')
@@ -185,6 +185,10 @@ def sync_clients() -> dict:
         except Exception as exc:  # защита от битых строк
             logger.exception('Ошибка обработки контрагента: %r', row)
             stats['errors'].append(f'Контрагент: {exc}')
+
+    # Правило системы: у архивного клиента не может быть проектов
+    # и действующих договоров. Закрываем их после обновления статусов.
+    stats['contracts_closed'] = close_archived_client_contracts()
 
     setting.last_sync_at = datetime.utcnow()
     if setting not in db.session:
@@ -239,7 +243,12 @@ def sync_contracts(client: Client) -> dict:
                                     or contract.signed_date or date.today())
             contract.end_date = _parse_date(row.get('СрокДействия'))
             contract.status_1c = _clean(row.get('Статус'))
-            contract.status = _map_contract_status(row.get('Статус'))
+            status = _map_contract_status(row.get('Статус'))
+            # У архивного клиента не может быть проектов и действующих
+            # договоров: из 1С они загружаются как завершённые.
+            if client.status != 'active' and status in Contract.OPEN_STATUSES:
+                status = 'closed'
+            contract.status = status
             contract.amount = _parse_amount(row.get('Сумма'))
             description = _clean(row.get('Description'))
             contract.description = description
@@ -248,6 +257,11 @@ def sync_contracts(client: Client) -> dict:
         except Exception as exc:  # защита от битых строк
             logger.exception('Ошибка обработки договора: %r', row)
             stats['errors'].append(f'Договор: {exc}')
+
+    # Даже если в ответе 1С договора не было, у архивного клиента
+    # не должно остаться открытых договоров.
+    if client.status != 'active':
+        client.close_open_contracts()
 
     db.session.commit()
     logger.info('Договоры клиента «%s»: %s', client.name, stats)

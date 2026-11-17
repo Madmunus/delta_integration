@@ -193,15 +193,38 @@ def run():
                 else 'заголовок не переименован')
     link_in_type = re.search(
         r'<td><a href="/documents/\d+">[^<]+</a></td>\s*<td>', registry_html)
-    steps.check('name="date_from"' in registry_html
-                and 'name="date_to"' in registry_html
+    steps.check('name="date_range"' in registry_html
+                and 'title="Дата: с — по"' in registry_html
+                and 'name="status"' in registry_html
                 and link_in_type is not None,
-                'В реестре документов есть фильтр по дате и ссылка в «Виде документа»',
-                'поля «Дата создания: с / по»; ссылка на карточку — в столбце '
-                '«Вид документа», а не в «Номере»',
-                'фильтр и ссылка оформлены корректно'
+                'В реестре документов есть фильтры по статусу и дате '
+                'и ссылка в «Виде документа»',
+                'единое поле «Дата: с — по» и выпадающий список статусов; '
+                'ссылка на карточку — в столбце «Вид документа», а не в «Номере»',
+                'фильтры и ссылка оформлены корректно'
                 if link_in_type is not None
-                else 'фильтр или ссылка оформлены неверно')
+                else 'фильтры или ссылка оформлены неверно')
+
+    date_html = web.get('/documents', query_string={
+        'date_range': '08.11.2026 — 08.11.2026'}).get_data(as_text=True)
+    date_filter_ok = ('РТ-102' in date_html and 'РТ-101' not in date_html
+                      and 'СЧ-201' not in date_html)
+    steps.check(date_filter_ok,
+                'В реестре документов фильтр по дате работает по полю «Дата»',
+                'диапазон 08.11.2026 оставляет только РТ-102 '
+                '(по дате документа, а не по дате создания)',
+                'фильтр по дате документа работает' if date_filter_ok
+                else 'фильтр по дате документа не работает')
+
+    status_html = web.get('/documents', query_string={
+        'status': 'Черновик'}).get_data(as_text=True)
+    status_filter_ok = ('РТ-102' in status_html and 'РТ-101' not in status_html
+                        and 'СЧ-201' not in status_html)
+    steps.check(status_filter_ok,
+                'В реестре документов работает фильтр по статусу',
+                'статус «Черновик» оставляет только черновики',
+                'фильтр по статусу работает' if status_filter_ok
+                else 'фильтр по статусу не работает')
     sort_asc = web.get('/documents', query_string={
         'q': 'РТ', 'sort': 'number', 'dir': 'asc'}).get_data(as_text=True)
     sort_desc = web.get('/documents', query_string={
@@ -217,6 +240,45 @@ def run():
                 'по убыванию (▼); выбранная сортировка сохраняется в фильтре',
                 'сортировка по номеру работает' if sorting_ok
                 else 'сортировка по столбцам не работает')
+
+    p_draft = registry_html.find('РТ-102')
+    p_registered = registry_html.find('СЧ-201')
+    p_posted = registry_html.find('РТ-101')
+    default_order_ok = -1 < p_draft < p_registered < p_posted
+    steps.check(default_order_ok,
+                'По умолчанию документы идут по статусу: черновик, '
+                'зарегистрирован, проведён, отменён',
+                'без выбранной сортировки сначала идут черновики, затем '
+                'зарегистрированные, проведённые и отменённые, внутри '
+                'статуса — по дате убыванию',
+                'порядок статусов соблюдён' if default_order_ok
+                else f'порядок нарушен: {p_draft}, {p_registered}, {p_posted}')
+
+    with app.app_context():
+        db.session.add_all([
+            Document(doc_type='Тест', number='ТАЙ-Б', client_id=client_id,
+                     doc_date=date(2026, 11, 5), status='Отменен'),
+            Document(doc_type='Тест', number='ТАЙ-А', client_id=client_id,
+                     doc_date=date(2026, 11, 5), status='Отменен'),
+        ])
+        db.session.commit()
+    tie_html = web.get('/documents').get_data(as_text=True)
+    t_draft = tie_html.find('РТ-102')
+    t_registered = tie_html.find('СЧ-201')
+    t_posted = tie_html.find('РТ-101')
+    p_a = tie_html.find('ТАЙ-А')
+    p_b = tie_html.find('ТАЙ-Б')
+    tie_ok = -1 < t_draft < t_registered < t_posted < p_a < p_b
+    steps.check(tie_ok,
+                'При равных статусе и дате документы сортируются по номеру',
+                'отменённые документы идут после проведённых, а при '
+                'одинаковых статусе и дате — по возрастанию номера',
+                'номерной порядок соблюдён' if tie_ok
+                else f'номерной порядок нарушен: {p_a}, {p_b}')
+    with app.app_context():
+        Document.query.filter(Document.number.like('ТАЙ-%')).delete(
+            synchronize_session=False)
+        db.session.commit()
     badge_styles = {
         'Проведён': 'text-bg-success',
         'Зарегистрирован': 'text-bg-primary',
@@ -331,6 +393,33 @@ def run():
                 '«Обработан» и заметки документа сохраняются из карточки',
                 'после сохранения «Обработан» = Да, заметки видны в карточке',
                 f'в базе: Обработан={saved_processed}, заметки «{saved_notes}»')
+
+    # --- Шаг 4.4. Фильтр и столбец «Обработан» в реестре документов -------
+    processed_page = web.get('/documents').get_data(as_text=True)
+    processed_yes = web.get('/documents', query_string={
+        'processed': 'yes'}).get_data(as_text=True)
+    processed_no = web.get('/documents', query_string={
+        'processed': 'no'}).get_data(as_text=True)
+    registry_head = processed_page.split('<thead', 1)[1].split('</thead>', 1)[0]
+    processed_ok = ('name="processed"' in processed_page
+                    and 'Обработан' in registry_head
+                    and 'class="badge text-bg-success">Да</span>' in processed_yes
+                    and 'class="badge text-bg-secondary">Нет</span>' in processed_no
+                    and 'РТ-101' in processed_yes
+                    and 'РТ-102' not in processed_yes
+                    and 'СЧ-201' not in processed_yes
+                    and 'РТ-101' not in processed_no
+                    and 'РТ-102' in processed_no
+                    and 'СЧ-201' in processed_no
+                    and 'value="yes" selected' in processed_yes)
+    steps.check(processed_ok,
+                'В реестре документов есть фильтр и столбец «Обработан»',
+                'выпадающий список «Обработан: Да / Нет» и столбец с бейджем; '
+                'фильтр «Да» оставляет только обработанный РТ-101, «Нет» — '
+                'остальные документы',
+                'фильтр и столбец «Обработан» работают'
+                if processed_ok
+                else 'фильтр или столбец «Обработан» не работают')
 
     # --- Шаг 5. Повторная загрузка не создаёт дублей -----------------------
     with app.app_context():

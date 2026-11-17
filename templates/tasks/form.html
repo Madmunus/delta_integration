@@ -54,6 +54,9 @@
         <div class="col-md-6">
           {{ form.assignee_id.label(class='form-label') }}
           {{ form.assignee_id(class='form-select') }}
+          {% for error in form.assignee_id.errors %}
+            <div class="text-danger small">{{ error }}</div>
+          {% endfor %}
         </div>
         <div class="col-md-4">
           {{ form.due_date.label(class='form-label') }}

@@ -8,7 +8,7 @@
 (20 активных — по 2 на каждого активного сотрудника, 4 архивных —
 по 2 на каждого неактивного сотрудника), 25 контрагентов, 50 договоров,
 50 документов из «1С:Документооборот», справочник сроков отчётности
-и задачи.
+и 100 демонстрационных задач.
 Пароли тестовых учётных записей соответствуют политике:
 не менее 13 символов, минимум одна цифра, заглавная и
 строчная латинские буквы, спецсимвол; без частей логина
@@ -20,7 +20,8 @@ from urllib.parse import quote
 
 from app import app
 from engine.models import (Client, Contract, Contractor, Document,
-                           OneCSetting, ReportingDeadline, Task, User, db)
+                           OneCSetting, ReportingDeadline, Task, User,
+                           close_archived_client_contracts, db)
 from engine.odata_client import DOCUMENT_ENTITIES
 
 # (email, ФИО, роль, пароль, активен)
@@ -189,19 +190,27 @@ _CONTRACT_STATUSES = ('active', 'active', 'active', 'closed', 'draft')
 
 
 def _demo_contracts(count=50):
-    """50 договоров с детерминированным распределением по клиентам."""
+    """50 договоров с детерминированным распределением по клиентам.
+
+    У архивных клиентов все договоры завершённые: проектов и действующих
+    договоров у них быть не может.
+    """
     base = date(2024, 1, 15)
     contracts = []
     for i in range(count):
         start = base + timedelta(days=i * 17)
         end = start + timedelta(days=365)
+        client_idx = i % len(CLIENTS) + 1
+        status = _CONTRACT_STATUSES[i % len(_CONTRACT_STATUSES)]
+        if CLIENTS[client_idx - 1][4] == 'archived':
+            status = 'closed'
         contracts.append((
             f'БС-{start.year}-{i + 1:03d}',
-            i % len(CLIENTS) + 1,
+            client_idx,
             i % len(CONTRACTORS) + 1,
             _CONTRACT_DESCRIPTIONS[i % len(_CONTRACT_DESCRIPTIONS)],
             6000 + (i % 10) * 3500,
-            _CONTRACT_STATUSES[i % len(_CONTRACT_STATUSES)],
+            status,
             start,
             end,
         ))
@@ -374,27 +383,56 @@ def _seed_documents(clients, contractors):
     return created
 
 
-def _seed_tasks(clients, user_list):
-    """Создать недостающие демонстрационные задачи (по заголовку)."""
+DEMO_TASKS_TOTAL = 100
+
+# Темы демонстрационных задач: чередуются, чтобы заголовки были
+# разнообразными и уникальными вместе с номером задачи.
+_TASK_TOPICS = [
+    'Сверка с ФНС',
+    'Подготовка декларации',
+    'Восстановление документов',
+    'Справка об отсутствии задолженности',
+    'Закрытие месяца',
+    'Сверка с контрагентами',
+    'Обновление карточки клиента',
+    'Проверка сроков отчётности',
+    'Подготовка отчёта',
+    'Контроль платежей',
+]
+
+
+def _seed_tasks(clients):
+    """Создать недостающие демонстрационные задачи (всего 100).
+
+    Задачи распределены по активным клиентам и их ответственным
+    сотрудникам; статусы, приоритеты и сроки чередуются, поэтому в
+    реестре есть новые, выполняющиеся и выполненные задачи, а также
+    просроченные. У каждой задачи есть исполнитель. Повторный
+    запуск не создаёт дублей: заголовок каждой задачи уникален.
+    """
     created = 0
     today = date.today()
-    demo_tasks = [
-        ('Сверка с ФНС по ООО «Ромашка»', 1, 2, today + timedelta(days=5), 2, 'new'),
-        ('Подготовка декларации по НДС ООО «ТехноПром»', 2, 3, today + timedelta(days=10), 1, 'in_progress'),
-        ('Восстановление документов ИП Сидоров', 3, 2, today - timedelta(days=3), 1, 'in_progress'),
-        ('Получение справки о отсутствии задолженности', 1, 2, today + timedelta(days=2), 3, 'new'),
-        ('Закрытие месяца по всем клиентам', 0, 1, today + timedelta(days=7), 2, 'in_progress'),
-        ('Обновление карточек клиентов после сверки', 0, 1, today - timedelta(days=1), 3, 'done'),
-    ]
-    for title, client_idx, assignee_idx, due, priority, status in demo_tasks:
+    active_clients = [c for c in clients if c.status == 'active'] or clients
+    fallback_id = (User.query.filter_by(is_active_flag=True)
+                   .order_by(User.id).first().id)
+    statuses = ('new', 'in_progress', 'done')
+    for i in range(DEMO_TASKS_TOTAL):
+        client = active_clients[i % len(active_clients)]
+        title = (f'{_TASK_TOPICS[i % len(_TASK_TOPICS)]} — '
+                 f'{client.name} (демо {i + 1:03d})')
         if Task.query.filter_by(title=title).first() is not None:
             continue
+        # Правило системы: задача не может быть без исполнителя
+        assignee_id = client.responsible_id or fallback_id
         db.session.add(Task(
             title=title,
-            description='Демонстрационная задача, создана скриптом seed.py.',
-            client_id=clients[client_idx - 1].id if client_idx else None,
-            assignee_id=user_list[assignee_idx - 1].id,
-            due_date=due, priority=priority, status=status))
+            description=('Демонстрационная задача, создана скриптом '
+                         f'seed.py. Клиент: {client.name}'),
+            client_id=client.id,
+            assignee_id=assignee_id,
+            due_date=today + timedelta(days=(i % 30) - 10),
+            priority=((i // 3) % 3) + 1,
+            status=statuses[i % len(statuses)]))
         created += 1
     return created
 
@@ -407,8 +445,9 @@ def main():
         contractors, contractors_created = _seed_contractors()
         deadlines_created = _seed_deadlines()
         contracts_created = _seed_contracts(clients, contractors)
+        archived_contracts_closed = close_archived_client_contracts()
         documents_created = _seed_documents(clients, contractors)
-        tasks_created = _seed_tasks(clients, user_list)
+        tasks_created = _seed_tasks(clients)
 
         db.session.commit()
         print('Готово. Создано:')
@@ -418,6 +457,7 @@ def main():
         print(f'  контрагентов: {contractors_created}')
         print(f'  видов отчётности: {deadlines_created}')
         print(f'  договоров: {contracts_created}')
+        print(f'  закрыто договоров у архивных клиентов: {archived_contracts_closed}')
         print(f'  документов: {documents_created}')
         print(f'  задач: {tasks_created}')
         print('Пароли демо-учётных записей установлены. Тестовые учётные записи:')

@@ -1,21 +1,25 @@
 """Сценарий 7 (ФТ-7): формирование отчётов и проверка агрегатов.
 
-Формирование отчёта по клиентской базе и по задачам; проверка
-корректности агрегированных показателей. Результат: отчёты
-формируются, показатели соответствуют данным.
+Формирование отчётов по клиентской базе, по задачам, по договорам
+и по документам (в разрезе клиентов); проверка корректности
+агрегированных показателей.
+Результат: отчёты формируются, показатели соответствуют данным.
 """
 import re
 from datetime import date, timedelta
+from urllib.parse import quote
 
-from engine.models import Client, Task, db
-from tests.base import (EMAILS, Steps, create_scenario_app, login,
-                        seed_users)
+from engine.models import Client, Contract, Document, Task, User, db
+from tests.base import (EMAILS, TEST_PASSWORD, Steps, create_scenario_app,
+                        login, seed_users)
 
 FT = 'ФТ-7'
-TITLE = 'Формирование отчётов по клиентской базе и по задачам'
-DESCRIPTION = ('Формирование отчёта по клиентской базе и по задачам; '
-               'проверка корректности агрегированных показателей. '
-               'Результат: отчёты формируются, показатели соответствуют данным.')
+TITLE = ('Формирование отчётов по клиентской базе, задачам, договорам '
+         'и документам')
+DESCRIPTION = ('Формирование отчётов по клиентской базе, по задачам, по '
+               'договорам и по документам в разрезе клиентов; проверка '
+               'корректности агрегированных показателей. Результат: отчёты '
+               'формируются, показатели соответствуют данным.')
 
 FIO = {
     'admin': 'Админов Аркадий Петрович',
@@ -23,7 +27,14 @@ FIO = {
     'emp2': 'Работникова Ольга Львовна',
 }
 
-# Датасет: 5 клиентов (4 активных, 1 архивный, 1 без ответственного)
+# Отключённые сотрудники: в отчёте должны идти после всех активных,
+# даже если у них больше активных клиентов. При равенстве показателей
+# внутри группы — по ФИО.
+INACTIVE_FIO = 'Уволенова Вера Петровна'
+INACTIVE_FIO_2 = 'Алексеева Нина Сергеевна'
+
+# Датасет: 9 клиентов (8 активных, 1 архивный, 1 без ответственного),
+# включая клиентов отключённых сотрудников
 CLIENTS = [
     # (наименование, ИНН, статус, ответственный)
     ('ООО «Ромашка-Т»', '7707777701', 'active', 'emp1'),
@@ -31,6 +42,10 @@ CLIENTS = [
     ('ООО «Василёк-Т»', '7707777703', 'active', 'emp2'),
     ('ООО «Лопух-Т»', '7707777704', 'archived', 'emp2'),
     ('ООО «Незабудка-Т»', '7707777705', 'active', None),
+    ('ООО «Клевер-Т»', '7707777706', 'active', 'emp3'),
+    ('ООО «Мятлик-Т»', '7707777707', 'active', 'emp3'),
+    ('ООО «Пырей-Т»', '7707777708', 'active', 'emp4'),
+    ('ООО «Тимофеевка-Т»', '7707777709', 'active', 'emp4'),
 ]
 
 # Датасет: 6 задач с известными исполнителями, статусами и сроками
@@ -41,21 +56,79 @@ TASKS = [
     ('ООО «Ромашка-Т»', 'emp1', 'in_progress', -2),  # просрочена по сроку
     ('ООО «Василёк-Т»', 'emp2', 'done', -5),         # выполнена — не просрочена
     ('ООО «Василёк-Т»', 'emp2', 'new', 3),
-    ('ООО «Ромашка-Т»', None, 'new', -1),            # просрочена без исполнителя
+    ('ООО «Ромашка-Т»', 'emp1', 'new', -1),          # просрочена по сроку
+]
+
+# Датасет: 9 договоров у 6 клиентов, включая архивного клиента;
+# у архивного клиента только завершённый договор
+CONTRACTS = [
+    # (клиент, номер, статус, сумма, смещение даты подписания в днях)
+    ('ООО «Ромашка-Т»', 'Д-001', 'active', 1000, -30),
+    ('ООО «Ромашка-Т»', 'Д-002', 'active', 500, -20),
+    ('ООО «Ромашка-Т»', 'Д-003', 'closed', 300, -400),
+    ('ООО «Лютик-Т»', 'Д-004', 'draft', 100, -5),
+    ('ООО «Василёк-Т»', 'Д-005', 'active', 700, -60),
+    ('ООО «Василёк-Т»', 'Д-006', 'closed', 200, -300),
+    ('ООО «Лопух-Т»', 'Д-007', 'closed', 50, -10),
+    ('ООО «Незабудка-Т»', 'Д-008', 'closed', 10, -200),
+    ('ООО «Пырей-Т»', 'Д-009', 'active', 900, -90),
+]
+
+# Датасет: 5 документов у 4 клиентов, включая архивного клиента;
+# статусы приходят свободным текстом, признак «Обработан» — внутренний
+DOCUMENTS = [
+    # (клиент, вид документа, номер, статус, смещение даты в днях, обработан)
+    ('ООО «Ромашка-Т»', 'РеализацияТоваровУслуг', 'ДОК-001',
+     'Проведён', -10, True),
+    ('ООО «Ромашка-Т»', 'СчетНаОплатуПокупателю', 'ДОК-002',
+     'Зарегистрирован', -5, False),
+    ('ООО «Лютик-Т»', 'ПлатежноеПоручение', 'ДОК-003',
+     'Черновик', -3, False),
+    ('ООО «Василёк-Т»', 'РеализацияТоваровУслуг', 'ДОК-004',
+     'Отменён', -20, True),
+    ('ООО «Лопух-Т»', 'АктВыполненныхРабот', 'ДОК-005',
+     'Проведён', -15, False),
 ]
 
 # Разметка шаблонов отчётов (для извлечения показателей со страницы)
-CARDS_RE = re.compile(r'<div class="display-6">(\d+)</div>')
+CARDS_RE = re.compile(r'<div class="display-6[^"]*">(\d+)</div>')
 CLIENT_ROWS_RE = re.compile(
-    r'<td>([^<]+)</td>\s*<td class="text-end">(\d+)</td>\s*'
-    r'<td class="text-end">(\d+)</td>')
+    r'<td><a href="/users/\d+/edit">([^<]+)</a></td>\s*'
+    r'<td>\s*<span class="badge [^"]*">(активен|отключён)</span>\s*</td>\s*'
+    r'<td class="text-end"><a href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a href="[^"]*">(\d+)</a></td>')
 TASK_ROWS_RE = re.compile(
-    r'<td>([^<]+)</td>\s*<td class="text-end text-success">(\d+)</td>\s*'
-    r'<td class="text-end">(\d+)</td>\s*<td class="text-end[^"]*">(\d+)</td>\s*'
-    r'<td class="text-end">(\d+)</td>')
-NO_ASSIGNEE_RE = re.compile(
-    r'без исполнителя</em></td>\s*<td class="text-end">(\d+)</td>\s*'
-    r'<td class="text-end">(\d+)</td>\s*<td class="text-end">(\d+)</td>')
+    r'<td><a href="/users/\d+/edit">([^<]+)</a></td>\s*'
+    r'<td class="text-end text-success"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end[^"]*"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>')
+
+# Отчёт по договорам: плитки с числами и строки групп по клиентам
+CONTRACT_CARD_RE = re.compile(
+    r'<div class="display-6[^"]*">(\d+)</div>\s*'
+    r'<div class="text-muted">([^<]+)</div>')
+CONTRACT_GROUP_RE = re.compile(
+    r'<td>\s*<a href="/clients/(\d+)">([^<]+)</a>'
+    r'(?:\s*<span class="badge[^"]*">[^<]+</span>)?\s*</td>\s*'
+    r'<td class="text-end"><a\s+href="/contracts\?client=\d+">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="/contracts\?client=\d+&amp;status=draft">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="/contracts\?client=\d+&amp;status=active">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="/contracts\?client=\d+&amp;status=closed">(\d+)</a></td>\s*'
+    r'<td class="text-end text-nowrap">([^<]+)</td>\s*'
+    r'<td class="text-end text-nowrap">([^<]+)</td>')
+
+# Отчёт по документам: строки групп по клиентам
+DOCUMENT_GROUP_RE = re.compile(
+    r'<td>\s*<a href="/clients/(\d+)">([^<]+)</a>'
+    r'(?:\s*<span class="badge[^"]*">[^<]+</span>)?\s*</td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end text-nowrap"><a\s+href="[^"]*">(\d+)</a></td>\s*'
+    r'<td class="text-end text-nowrap"><a\s+href="[^"]*">(\d+)</a></td>')
 
 
 def _clients_of(responsible):
@@ -78,12 +151,48 @@ def _task_counts(assignee):
     return done, work, over
 
 
+def _contract_stats(client_name):
+    """Ожидаемые показатели клиента: (всего, проект, действ., заверш.,
+    сумма действующих, сумма всех)."""
+    own = [c for c in CONTRACTS if c[0] == client_name]
+    counts = {status: sum(1 for c in own if c[2] == status)
+              for status in ('draft', 'active', 'closed')}
+    amount_active = sum(c[3] for c in own if c[2] == 'active')
+    amount_total = sum(c[3] for c in own)
+    return (len(own), counts['draft'], counts['active'], counts['closed'],
+            amount_active, amount_total)
+
+
+def _document_stats(client_name):
+    """Ожидаемые показатели клиента: (всего, черновик, зарегистрирован,
+    проведён, отменён, обработано, не обработано)."""
+    own = [d for d in DOCUMENTS if d[0] == client_name]
+    statuses = ('Черновик', 'Зарегистрирован', 'Проведён', 'Отменён')
+    counts = [sum(1 for d in own if d[3] == status) for status in statuses]
+    processed = sum(1 for d in own if d[5])
+    return (len(own), *counts, processed, len(own) - processed)
+
+
+def _to_number(text):
+    """Сумма со страницы («1 500,00») в число."""
+    return float(text.replace('\xa0', '').replace(' ', '').replace(',', '.'))
+
+
 def run():
     app = create_scenario_app()
     steps = Steps()
     users = seed_users(app)
 
     with app.app_context():
+        for email, fio in (('emp3@test.local', INACTIVE_FIO),
+                           ('emp4@test.local', INACTIVE_FIO_2)):
+            inactive = User(email=email, fio=fio, role='employee',
+                            is_active_flag=False)
+            inactive.set_password(TEST_PASSWORD)
+            db.session.add(inactive)
+        db.session.flush()
+        users['emp3'] = User.query.filter_by(email='emp3@test.local').first().id
+        users['emp4'] = User.query.filter_by(email='emp4@test.local').first().id
         client_ids = {}
         for name, inn, status, resp in CLIENTS:
             db.session.add(Client(
@@ -99,14 +208,48 @@ def run():
                 assignee_id=users[assignee] if assignee else None,
                 due_date=date.today() + timedelta(days=due_offset),
                 status=status))
+        for client_name, number, status, amount, day_offset in CONTRACTS:
+            db.session.add(Contract(
+                number=number,
+                client_id=client_ids[client_name],
+                signed_date=date.today() + timedelta(days=day_offset),
+                amount=amount,
+                status=status))
+        for client_name, doc_type, number, status, day_offset, processed in DOCUMENTS:
+            db.session.add(Document(
+                doc_type=doc_type,
+                number=number,
+                client_id=client_ids[client_name],
+                doc_date=date.today() + timedelta(days=day_offset),
+                status=status,
+                processed=processed))
         db.session.commit()
 
     steps.note('Подготовлен контрольный датасет',
                f'{len(CLIENTS)} клиентов ({sum(1 for c in CLIENTS if c[2] == "active")} '
-               f'активных), {len(TASKS)} задач, 3 пользователя')
+               f'активных), {len(TASKS)} задач, {len(CONTRACTS)} договоров '
+               f'у {len({c[0] for c in CONTRACTS})} клиентов, '
+               f'{len(DOCUMENTS)} документов у {len({d[0] for d in DOCUMENTS})} '
+               f'клиентов, 5 пользователей (двое отключены)')
 
     web = app.test_client()
     login(web, EMAILS['admin'])
+
+    # --- Страница «Отчёты»: весь блок — ссылка на отчёт --------------------
+    resp = web.get('/reports')
+    html = resp.get_data(as_text=True)
+    index_ok = (resp.status_code == 200
+                and 'Открыть' not in html
+                and all(f'href="{href}"' in html for href in (
+                    '/reports/clients', '/reports/contracts',
+                    '/reports/documents', '/reports/tasks'))
+                and html.count('delta-report-card') == 4)
+    steps.check(index_ok,
+                'На странице «Отчёты» блоки являются ссылками',
+                'нет кнопки «Открыть»; каждый из 4 блоков целиком ведёт '
+                'на страницу соответствующего отчёта',
+                'блоки-ссылки оформлены корректно' if index_ok
+                else 'кнопка «Открыть» осталась или ссылки отсутствуют')
 
     # --- Отчёт по клиентской базе ----------------------------------------
     resp = web.get('/reports/clients')
@@ -128,8 +271,9 @@ def run():
                 f'на странице: активных {got[0]}, всего {got[1]}, '
                 f'без ответственного {got[2]}')
 
+    parsed = CLIENT_ROWS_RE.findall(html)
     rows = {fio.strip(): (int(a), int(b))
-            for fio, a, b in CLIENT_ROWS_RE.findall(html)}
+            for fio, status, a, b in parsed}
     exp_rows = {FIO['emp1']: _clients_of('emp1'), FIO['emp2']: _clients_of('emp2')}
     ok = all(rows.get(fio) == val for fio, val in exp_rows.items())
     steps.check(ok,
@@ -140,6 +284,54 @@ def run():
                 f'({_clients_of("emp2")[1]} активных)',
                 '; '.join(f'{fio}: {rows.get(fio)}' for fio in exp_rows))
 
+    # --- Активность пользователей и порядок строк -------------------------
+    statuses = {fio.strip(): status for fio, status, _, _ in parsed}
+    row_order = [fio.strip() for fio, *_ in parsed]
+    exp_order = [FIO['emp1'], FIO['emp2'], FIO['admin'],
+                 INACTIVE_FIO_2, INACTIVE_FIO]
+    steps.check(
+        row_order == exp_order
+        and statuses.get(INACTIVE_FIO) == 'отключён'
+        and statuses.get(INACTIVE_FIO_2) == 'отключён'
+        and statuses.get(FIO['emp1']) == 'активен',
+        'Сортировка: активные пользователи, затем по активным клиентам',
+        'сначала активные по убыванию числа активных клиентов, '
+        'отключённые — в конце; при равенстве — по ФИО',
+        f'порядок: {row_order}; статусы: {statuses}')
+
+    # --- Раскрывающийся список клиентов сотрудника -------------------------
+    toggles = html.count('delta-report-toggle')
+    detail_ok = (
+        f'id="responsible-clients-{users["emp1"]}"' in html
+        and f'id="responsible-clients-{users["admin"]}"' in html
+        and all(f'data-bs-target="#responsible-clients-{uid}"' in html
+                for uid in users.values()))
+    names_ok = all(name in html for name, _, _, resp in CLIENTS
+                   if resp == 'emp1')
+    steps.check(toggles == len(parsed) and detail_ok and names_ok,
+                'Клиенты сотрудника раскрываются отдельным списком',
+                f'{len(parsed)} раскрывающихся блоков; в блоке сотрудника — '
+                'его клиенты со ссылками на карточки',
+                f'кнопок: {toggles}, цели: '
+                f'{"все" if detail_ok else "не все"}, клиенты: '
+                f'{"все" if names_ok else "не все"}')
+
+    # --- Ссылки в плитках и таблице ---------------------------------------
+    links_ok = all(href in html for href in (
+        'href="/clients?status=active"',
+        'href="/clients"',
+        'href="/clients?responsible=none"',
+        f'href="/users/{users["emp1"]}/edit"',
+        f'href="/clients?responsible={users["emp1"]}"',
+        f'href="/clients?responsible={users["emp1"]}&amp;status=active"',
+    ))
+    steps.check(links_ok,
+                'Ссылки отчёта ведут в реестр и карточки',
+                'плитки — в реестр с фильтром, ФИО — в карточку '
+                'пользователя, числа — в реестр по ответственному',
+                'все ссылки найдены' if links_ok
+                else 'часть ссылок отсутствует')
+
     # --- Отчёт по задачам --------------------------------------------------
     resp = web.get('/reports/tasks')
     html = resp.get_data(as_text=True)
@@ -147,6 +339,26 @@ def run():
                 'Отчёт по задачам формируется',
                 'страница отчёта открывается руководителю',
                 f'HTTP {resp.status_code}')
+
+    exp_cards = (
+        len(TASKS),
+        sum(1 for t in TASKS if t[2] == 'done'),
+        sum(1 for t in TASKS if t[2] in ('new', 'in_progress')),
+        sum(1 for t in TASKS if t[2] != 'done' and t[3] < 0),
+    )
+    task_cards = tuple(int(v) for v in CARDS_RE.findall(html)[:4])
+    steps.check(task_cards == exp_cards,
+                'Сводные плитки отчёта по задачам',
+                f'всего {exp_cards[0]}, выполнено {exp_cards[1]}, '
+                f'в работе {exp_cards[2]}, просрочено {exp_cards[3]}',
+                f'на странице: {task_cards}')
+
+    steps.check('без исполнителя' not in html,
+                'В отчёте по задачам нет строки «без исполнителя»',
+                'все задачи отнесены к конкретным исполнителям',
+                'строка «без исполнителя» отсутствует'
+                if 'без исполнителя' not in html
+                else 'строка «без исполнителя» осталась')
 
     rows = {fio.strip(): tuple(int(v) for v in nums)
             for fio, *nums in TASK_ROWS_RE.findall(html)}
@@ -162,22 +374,276 @@ def run():
                 f'просрочено {_task_counts("emp2")[2]}',
                 '; '.join(f'{fio}: {rows.get(fio)}' for fio in exp_rows))
 
-    m = NO_ASSIGNEE_RE.search(html)
-    got = tuple(int(v) for v in m.groups()) if m else None
-    exp = _task_counts(None)
-    steps.check(got == exp,
-                'Задачи без исполнителя учтены отдельной строкой',
-                f'выполнено {exp[0]}, в работе {exp[1]}, просрочено {exp[2]}',
-                f'строка «без исполнителя»: {got}')
+    # --- Раскрывающийся список задач исполнителя ---------------------------
+    toggles = html.count('delta-report-toggle')
+    detail_ok = (
+        f'id="assignee-tasks-{users["emp1"]}"' in html
+        and all(f'data-bs-target="#assignee-tasks-{uid}"' in html
+                for uid in users.values()))
+    titles_ok = all(f'Задача для {client_name}' in html
+                    for client_name, assignee, _, _ in TASKS
+                    if assignee == 'emp1')
+    steps.check(toggles == len(TASK_ROWS_RE.findall(html))
+                and detail_ok and titles_ok,
+                'Задачи исполнителя раскрываются отдельным списком',
+                'кнопка в каждой строке; в блоке — задачи со сроком, '
+                'приоритетом и статусом',
+                f'кнопок: {toggles}, цели: '
+                f'{"все" if detail_ok else "не все"}, задачи: '
+                f'{"все" if titles_ok else "не все"}')
+
+    # --- Ссылки в плитках и таблице ---------------------------------------
+    links_ok = all(href in html for href in (
+        'href="/tasks"',
+        'href="/tasks?status=done"',
+        'href="/tasks?status=open"',
+        'href="/tasks?status=overdue"',
+        f'href="/users/{users["emp1"]}/edit"',
+        f'href="/tasks?assignee={users["emp1"]}&amp;status=done"',
+        f'href="/tasks?assignee={users["emp1"]}&amp;status=open"',
+        f'href="/tasks?assignee={users["emp1"]}&amp;status=overdue"',
+        f'href="/tasks?assignee={users["emp1"]}"',
+    ))
+    steps.check(links_ok,
+                'Ссылки отчёта по задачам ведут в реестр и карточки',
+                'плитки — в реестр с фильтром, ФИО — в карточку '
+                'пользователя, числа — в реестр по исполнителю',
+                'все ссылки найдены' if links_ok
+                else 'часть ссылок отсутствует')
+
+    # --- Отчёт по договорам и поступлениям (группировка по клиентам) ------
+    resp = web.get('/reports/contracts')
+    html = resp.get_data(as_text=True)
+    steps.check(resp.status_code == 200
+                and 'Отчёт по договорам' in html,
+                'Отчёт по договорам и поступлениям формируется',
+                'страница отчёта открывается руководителю',
+                f'HTTP {resp.status_code}')
+
+    cards = {label.strip(): int(value)
+             for value, label in CONTRACT_CARD_RE.findall(html)}
+    exp_active = sum(1 for c in CONTRACTS if c[2] == 'active')
+    exp_closed = sum(1 for c in CONTRACTS if c[2] == 'closed')
+    exp_draft = sum(1 for c in CONTRACTS if c[2] == 'draft')
+    exp_clients = len({c[0] for c in CONTRACTS})
+    got_cards = (cards.get('клиентов с договорами'),
+                 cards.get('всего договоров'),
+                 cards.get('действующих'),
+                 cards.get('завершённых'),
+                 cards.get('проектов'))
+    steps.check(got_cards == (exp_clients, len(CONTRACTS), exp_active,
+                              exp_closed, exp_draft),
+                'Сводные плитки отчёта по договорам',
+                f'клиентов {exp_clients}, всего {len(CONTRACTS)}, '
+                f'действующих {exp_active}, завершённых {exp_closed}, '
+                f'проектов {exp_draft}',
+                f'на странице: {got_cards}')
+
+    parsed = CONTRACT_GROUP_RE.findall(html)
+    order = []
+    groups = {}
+    for _, name, total, draft, active, closed, amt_active, amt_total in parsed:
+        name = name.strip()
+        order.append(name)
+        groups[name] = (int(total), int(draft), int(active), int(closed),
+                        _to_number(amt_active), _to_number(amt_total))
+    exp_groups = {name: _contract_stats(name)
+                  for name in {c[0] for c in CONTRACTS}}
+    ok = groups == exp_groups
+    steps.check(ok, 'Договоры сгруппированы по клиентам',
+                'для каждого клиента — всего, по статусам и суммы '
+                'действующих и всех договоров',
+                '; '.join(f'{n}: {groups.get(n)}' for n in exp_groups)
+                if ok else f'получено: {groups}')
+
+    client_status = {name: status for name, _, status, _ in CLIENTS}
+    with_contracts = {c[0] for c in CONTRACTS}
+
+    archived_open = {
+        name: (groups[name][1], groups[name][2])
+        for name in with_contracts if client_status[name] != 'active'
+    }
+    steps.check(
+        all(draft == 0 and active == 0
+            for draft, active in archived_open.values()),
+        'У архивных клиентов нет проектов и действующих договоров',
+        'в отчёте у архивных клиентов проектов 0 и действующих 0',
+        f'архивные клиенты: {archived_open}')
+
+    exp_order = (
+        sorted([n for n in with_contracts if client_status[n] == 'active'],
+               key=lambda n: (-_contract_stats(n)[4], n))
+        + sorted([n for n in with_contracts if client_status[n] != 'active'],
+                 key=lambda n: (-_contract_stats(n)[4], n)))
+    steps.check(order == exp_order,
+                'Порядок групп: активные клиенты, затем архивные',
+                'сначала активные по сумме действующих договоров '
+                '(по убыванию), при равенстве — по наименованию; '
+                'архивные — в конце',
+                f'порядок: {order}')
+
+    links_ok = all(href in html for href in (
+        'href="/contracts"',
+        'href="/contracts?status=active"',
+        'href="/contracts?status=closed"',
+        'href="/contracts?status=draft"',
+        f'href="/clients/{client_ids["ООО «Ромашка-Т»"]}"',
+        f'href="/contracts?client={client_ids["ООО «Ромашка-Т»"]}"',
+        f'href="/contracts?client={client_ids["ООО «Ромашка-Т»"]}'
+        f'&amp;status=active"',
+    ))
+    steps.check(links_ok,
+                'Ссылки отчёта по договорам ведут в реестр и карточки',
+                'плитки — в реестр по статусу, клиент — в карточку, '
+                'числа — в реестр по клиенту и статусу',
+                'все ссылки найдены' if links_ok
+                else 'часть ссылок отсутствует')
+
+    collapses = html.count('delta-report-toggle')
+    targets_ok = all(f'id="client-contracts-{client_ids[name]}"' in html
+                     for name in with_contracts)
+    numbers_ok = all(number in html for _, number, *_ in CONTRACTS)
+    steps.check(collapses == exp_clients and targets_ok and numbers_ok,
+                'Договоры клиента раскрываются отдельным списком',
+                f'{exp_clients} раскрывающихся блоков с номерами всех '
+                f'{len(CONTRACTS)} договоров',
+                f'блоков: {collapses}, цели: '
+                f'{"все" if targets_ok else "не все"}, номера: '
+                f'{"все" if numbers_ok else "не все"}')
+
+    resp = web.get(f'/contracts?client={client_ids["ООО «Ромашка-Т»"]}'
+                   f'&status=active')
+    page = resp.get_data(as_text=True)
+    m = re.search(r'Договоры\s*<span class="text-muted">\((\d+)\)</span>', page)
+    got = int(m.group(1)) if m else None
+    exp = sum(1 for c in CONTRACTS
+              if c[0] == 'ООО «Ромашка-Т»' and c[2] == 'active')
+    steps.check(resp.status_code == 200 and got == exp,
+                'Фильтр реестра по клиенту и статусу из отчёта',
+                f'в реестре {exp} действующих договора клиента',
+                f'HTTP {resp.status_code}, найдено: {got}')
+
+    # --- Отчёт по документам (группировка по клиентам) ---------------------
+    resp = web.get('/reports/documents')
+    html = resp.get_data(as_text=True)
+    steps.check(resp.status_code == 200 and 'Отчёт по документам' in html,
+                'Отчёт по документам формируется',
+                'страница отчёта открывается руководителю',
+                f'HTTP {resp.status_code}')
+
+    cards = {label.strip(): int(value)
+             for value, label in CONTRACT_CARD_RE.findall(html)}
+    exp_doc_cards = (
+        len({d[0] for d in DOCUMENTS}),
+        len(DOCUMENTS),
+        sum(1 for d in DOCUMENTS if d[3] == 'Черновик'),
+        sum(1 for d in DOCUMENTS if d[3] == 'Зарегистрирован'),
+        sum(1 for d in DOCUMENTS if d[3] == 'Проведён'),
+        sum(1 for d in DOCUMENTS if d[3] == 'Отменён'),
+        sum(1 for d in DOCUMENTS if d[5]),
+    )
+    got_cards = (cards.get('клиентов с документами'),
+                 cards.get('всего документов'),
+                 cards.get('черновиков'),
+                 cards.get('зарегистрировано'),
+                 cards.get('проведено'),
+                 cards.get('отменено'),
+                 cards.get('обработано'))
+    steps.check(got_cards == exp_doc_cards,
+                'Сводные плитки отчёта по документам',
+                f'клиентов {exp_doc_cards[0]}, всего {exp_doc_cards[1]}, '
+                f'черновиков {exp_doc_cards[2]}, '
+                f'зарегистрировано {exp_doc_cards[3]}, '
+                f'проведено {exp_doc_cards[4]}, '
+                f'отменено {exp_doc_cards[5]}, '
+                f'обработано {exp_doc_cards[6]}',
+                f'на странице: {got_cards}')
+
+    parsed = DOCUMENT_GROUP_RE.findall(html)
+    order = []
+    groups = {}
+    for (_, name, total, draft, registered, conducted, cancelled,
+         processed, unprocessed) in parsed:
+        name = name.strip()
+        order.append(name)
+        groups[name] = (int(total), int(draft), int(registered),
+                        int(conducted), int(cancelled), int(processed),
+                        int(unprocessed))
+    exp_groups = {name: _document_stats(name)
+                  for name in {d[0] for d in DOCUMENTS}}
+    steps.check(groups == exp_groups,
+                'Документы сгруппированы по клиентам',
+                'для каждого клиента — всего, по статусам, обработано '
+                'и не обработано',
+                '; '.join(f'{n}: {groups.get(n)}' for n in exp_groups)
+                if groups == exp_groups else f'получено: {groups}')
+
+    doc_clients = {d[0] for d in DOCUMENTS}
+    exp_order = (
+        sorted([n for n in doc_clients if client_status[n] == 'active'],
+               key=lambda n: (-_document_stats(n)[0], n))
+        + sorted([n for n in doc_clients if client_status[n] != 'active'],
+                 key=lambda n: (-_document_stats(n)[0], n)))
+    steps.check(order == exp_order,
+                'Порядок групп отчёта по документам: активные, затем архивные',
+                'сначала активные по числу документов (по убыванию), '
+                'при равенстве — по наименованию; архивные — в конце',
+                f'порядок: {order}')
+
+    cid = client_ids['ООО «Ромашка-Т»']
+    links_ok = all(href in html for href in (
+        'href="/documents"',
+        f'href="/documents?status={quote("Проведён")}"',
+        'href="/documents?processed=yes"',
+        f'href="/clients/{cid}"',
+        f'href="/documents?client={cid}"',
+        f'href="/documents?client={cid}'
+        f'&amp;status={quote("Проведён")}"',
+        f'href="/documents?client={cid}&amp;processed=yes"',
+        f'href="/documents?client={cid}&amp;processed=no"',
+    ))
+    steps.check(links_ok,
+                'Ссылки отчёта по документам ведут в реестр и карточки',
+                'плитки — в реестр с фильтром, клиент — в карточку, '
+                'числа — в реестр по клиенту, статусу и признаку «Обработан»',
+                'все ссылки найдены' if links_ok
+                else 'часть ссылок отсутствует')
+
+    collapses = html.count('delta-report-toggle')
+    targets_ok = all(f'id="client-documents-{client_ids[name]}"' in html
+                     for name in doc_clients)
+    numbers_ok = all(d[2] in html for d in DOCUMENTS)
+    steps.check(collapses == len(doc_clients) and targets_ok and numbers_ok,
+                'Документы клиента раскрываются отдельным списком',
+                f'{len(doc_clients)} раскрывающихся блоков с номерами всех '
+                f'{len(DOCUMENTS)} документов',
+                f'блоков: {collapses}, цели: '
+                f'{"все" if targets_ok else "не все"}, номера: '
+                f'{"все" if numbers_ok else "не все"}')
+
+    resp = web.get(f'/documents?client={cid}&processed=no')
+    page = resp.get_data(as_text=True)
+    m = re.search(r'Документы\s*<span class="text-muted">\((\d+)\)</span>',
+                  page)
+    got = int(m.group(1)) if m else None
+    exp = sum(1 for d in DOCUMENTS
+              if d[0] == 'ООО «Ромашка-Т»' and not d[5])
+    steps.check(resp.status_code == 200 and got == exp,
+                'Фильтр реестра по клиенту и «Обработан» из отчёта',
+                f'в реестре {exp} необработанный документ клиента',
+                f'HTTP {resp.status_code}, найдено: {got}')
 
     # --- Отчёты доступны только руководителю --------------------------------
     emp = app.test_client()
     login(emp, EMAILS['emp1'])
-    resp = emp.get('/reports/clients')
-    steps.check(resp.status_code == 403,
+    denied = [path for path in ('/reports/clients', '/reports/tasks',
+                                '/reports/contracts', '/reports/documents')
+              if emp.get(path).status_code != 403]
+    steps.check(not denied,
                 'Отчёты доступны только руководителю',
-                'сотруднику страница отчёта запрещена (HTTP 403)',
-                f'HTTP {resp.status_code}')
+                'сотруднику страницы отчётов запрещены (HTTP 403)',
+                f'доступны сотруднику: {denied}' if denied
+                else 'все страницы отчётов вернули HTTP 403')
 
     conclusion = ('Отчёты формируются, агрегированные показатели соответствуют '
                   'данным.' if steps.passed

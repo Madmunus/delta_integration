@@ -4,7 +4,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
 
-from engine.dates import apply_created_at_range
+from engine.dates import apply_date_range
 from engine.forms import ClientForm
 from engine.models import Client, Contract, Document, Task, User, db
 from engine.sync import sync_contracts
@@ -39,8 +39,6 @@ def list_clients():
     search = (request.args.get('q') or '').strip()
     status = request.args.get('status') or ''
     responsible = request.args.get('responsible') or ''
-    date_from = request.args.get('date_from') or ''
-    date_to = request.args.get('date_to') or ''
     if search:
         like = f'%{search}%'
         q = q.filter(or_(Client.name.ilike(like),
@@ -57,9 +55,8 @@ def list_clients():
             q = q.filter(Client.responsible_id.is_(None))
         elif responsible.isdigit():
             q = q.filter(Client.responsible_id == int(responsible))
-    # Поиск по дате создания (диапазон «с — по»)
-    q, date_from, date_to = apply_created_at_range(
-        q, Client.created_at, date_from, date_to)
+    # Поиск по дате создания (диапазон «с — по» в едином поле)
+    q, date_range = apply_date_range(q, Client.created_at, request.args)
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
     # и отключена (сортировка по умолчанию). По умолчанию: сначала активные,
@@ -94,7 +91,7 @@ def list_clients():
                            search=search,
                            status=status, responsibles=responsibles,
                            responsible=responsible,
-                           date_from=date_from, date_to=date_to,
+                           date_range=date_range,
                            sort=sort, direction=direction)
 
 

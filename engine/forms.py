@@ -163,7 +163,10 @@ class TaskForm(FlaskForm):
     title = StringField('Наименование', validators=[DataRequired(), Length(max=512)])
     description = TextAreaField('Описание', validators=[Optional()])
     client_id = SelectField('Клиент', coerce=int, validators=[Optional()])
-    assignee_id = SelectField('Исполнитель', coerce=int, validators=[Optional()])
+    # Правило системы: задача не может быть без исполнителя
+    assignee_id = SelectField('Исполнитель', coerce=int,
+                              validators=[DataRequired(
+                                  message='Выберите исполнителя задачи')])
     due_date = DateField('Срок', validators=[DataRequired()])
     priority = SelectField('Приоритет', coerce=int, choices=[
         (1, 'Высокий'), (2, 'Средний'), (3, 'Низкий')])

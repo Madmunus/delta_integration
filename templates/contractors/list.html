@@ -3,7 +3,7 @@
 {% from '_pagination.html' import render_pagination %}
 {% from '_sort.html' import sort_link %}
 {% block content %}
-{% set filter_params = dict(q=search, date_from=date_from, date_to=date_to) %}
+{% set filter_params = dict(q=search, status=status, date_range=date_range) %}
 {% set sort_params = dict(filter_params, page=pagination.page) %}
 {% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
@@ -18,7 +18,7 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
   {% endif %}
-  <div class="col-12 col-md-4 col-lg-3">
+  <div class="col-12 col-md-4 col-lg-2">
     <div class="input-group">
       <input class="form-control" name="q" value="{{ search }}"
              placeholder="Поиск по таблице"
@@ -28,11 +28,19 @@
               onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
     </div>
   </div>
+  <div class="col-6 col-md-2 col-lg-2">
+    <select class="form-select" name="status" aria-label="Статус записи"
+            title="Активность записи">
+      <option value="">Все статусы</option>
+      <option value="active" {{ 'selected' if status == 'active' }}>Активные</option>
+      <option value="archived" {{ 'selected' if status == 'archived' }}>Архивные</option>
+    </select>
+  </div>
   {% include '_date_range.html' %}
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
-    <button class="btn btn-secondary flex-fill" title="Применить фильтр"
+    <button class="btn btn-secondary" title="Применить фильтр"
             aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
-    <a class="btn btn-outline-secondary flex-fill" title="Сбросить фильтр"
+    <a class="btn btn-outline-secondary" title="Сбросить фильтр"
        aria-label="Сбросить фильтр"
        href="{{ url_for('contractors.list_contractors') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
@@ -70,7 +78,7 @@
     </tr>
   {% else %}
     <tr><td colspan="6" class="text-muted">
-      {% if search or date_from or date_to %}Контрагенты не найдены{% else %}Контрагенты появятся после синхронизации с базой 1С:Предприятие{% endif %}
+      {% if search or status or date_range %}Контрагенты не найдены{% else %}Контрагенты появятся после синхронизации с базой 1С:Предприятие{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>

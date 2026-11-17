@@ -42,6 +42,26 @@ CONTRACTS = [
      'Description': 'Проект договора'},
 ]
 
+# Catalog_Договоры архивного клиента: открытые договоры должны
+# загрузиться как завершённые.
+ARCHIVED_CONTRACTS = [
+    {'Ref_Key': 'eeeeeeee-0004-0000-0000-000000000004',
+     'Контрагент': '', 'Наименование': 'АРХ-001',
+     'Дата': '2026-01-10T00:00:00', 'СрокДействия': '2026-12-31T00:00:00',
+     'Статус': 'Действует', 'Сумма': 10000,
+     'Description': 'Действующий договор архивного клиента'},
+    {'Ref_Key': 'eeeeeeee-0005-0000-0000-000000000005',
+     'Контрагент': '', 'Наименование': 'АРХ-002',
+     'Дата': '2026-02-01T00:00:00', 'СрокДействия': '2026-12-31T00:00:00',
+     'Статус': 'Проект', 'Сумма': 5000,
+     'Description': 'Проект договора архивного клиента'},
+    {'Ref_Key': 'eeeeeeee-0006-0000-0000-000000000006',
+     'Контрагент': '', 'Наименование': 'АРХ-003',
+     'Дата': '2025-01-01T00:00:00', 'СрокДействия': '2025-12-31T00:00:00',
+     'Статус': 'Закрыт', 'Сумма': 7000,
+     'Description': 'Завершённый договор архивного клиента'},
+]
+
 
 def run():
     app = create_scenario_app()
@@ -216,6 +236,32 @@ def run():
                 f'Обработан: {saved_value}, заметки: '
                 f'{saved.notes if saved else None}')
 
+    # --- Шаг 3.3. Фильтр и столбец «Обработан» в реестре договоров ------
+    processed_page = web.get('/contracts').get_data(as_text=True)
+    processed_yes = web.get('/contracts', query_string={
+        'processed': 'yes'}).get_data(as_text=True)
+    processed_no = web.get('/contracts', query_string={
+        'processed': 'no'}).get_data(as_text=True)
+    registry_head = processed_page.split('<thead', 1)[1].split('</thead>', 1)[0]
+    processed_ok = ('name="processed"' in processed_page
+                    and 'Обработан' in registry_head
+                    and 'class="badge text-bg-success">Да</span>' in processed_yes
+                    and 'class="badge text-bg-secondary">Нет</span>' in processed_no
+                    and 'ДГ-001' in processed_yes
+                    and 'ДГ-002' not in processed_yes
+                    and 'ДГ-003' not in processed_yes
+                    and 'ДГ-001' not in processed_no
+                    and 'ДГ-002' in processed_no
+                    and 'ДГ-003' in processed_no
+                    and 'value="yes" selected' in processed_yes)
+    steps.check(processed_ok,
+                'В реестре договоров есть фильтр и столбец «Обработан»',
+                'выпадающий список «Обработан: Да / Нет» и столбец с бейджем; '
+                'фильтр «Да» оставляет только обработанный ДГ-001, «Нет» — '
+                'остальные договоры',
+                'фильтр и столбец «Обработан» работают'
+                if processed_ok else 'фильтр или столбец «Обработан» не работают')
+
     # --- Шаг 4. Повторная загрузка не создаёт дублей -------------------
     with app.app_context():
         client = db.session.get(Client, client_id)
@@ -267,12 +313,88 @@ def run():
                 '25 договоров: 20 на первой странице и 5 на второй',
                 f'всего {total}, на странице 1 — {rows1}, '
                 f'на странице 2 — {rows2}')
-    steps.check('name="date_from"' in page1 and 'name="date_to"' in page1,
-                'В реестре договоров есть фильтр по дате создания',
-                'добавлены поля «Дата создания: с / по»',
-                'фильтр по дате присутствует'
-                if 'name="date_from"' in page1
-                else 'фильтр по дате отсутствует')
+    date_html = web.get('/contracts', query_string={
+        'date_range': '15.01.2026 — 15.01.2026'}).get_data(as_text=True)
+    date_filter_ok = ('ДГ-001' in date_html and 'ДГ-002' not in date_html
+                      and 'ДГ-003' not in date_html)
+    steps.check('name="date_range"' in page1
+                and 'title="Дата: с — по"' in page1 and date_filter_ok,
+                'В реестре договоров фильтр по дате работает по полю «Дата»',
+                'единое поле «Дата: с — по»; диапазон 15.01.2026 оставляет '
+                'только ДГ-001',
+                'фильтр по дате договора работает' if date_filter_ok
+                else 'фильтр по дате договора не работает')
+    # --- Шаг 6.1. Фильтры по клиенту и контрагенту ----------------------
+    with app.app_context():
+        other_client = Client(name='ООО «Второй-Тест»', inn='7707777777',
+                              status='active')
+        other_contractor = Contractor(
+            full_name='ООО «Второй контрагент-Т»', inn='7707777799',
+            external_ref='cccccccc-8888-8888-8888-888888888888')
+        db.session.add_all([other_client, other_contractor])
+        db.session.flush()
+        db.session.add(Contract(
+            number='ЧК-001', client_id=other_client.id,
+            contractor_id=other_contractor.id,
+            signed_date=date(2026, 2, 1), status='active'))
+        db.session.commit()
+        other_client_id = other_client.id
+        other_contractor_id = other_contractor.id
+
+    page_html = web.get('/contracts').get_data(as_text=True)
+    positions = [page_html.find(key) for key in (
+        'name="date_range"', 'name="client"', 'name="contractor"',
+        'name="status"')]
+    order_ok = (all(pos >= 0 for pos in positions)
+                and positions == sorted(positions))
+    selects_ok = ('Все клиенты' in page_html
+                  and 'Все контрагенты' in page_html
+                  and '>ООО «Второй-Тест»<' in page_html
+                  and '>ООО «Второй контрагент-Т»<' in page_html)
+    steps.check(order_ok and selects_ok,
+                'В реестре договоров есть фильтры по клиенту и контрагенту',
+                'после полей даты идут списки «Все клиенты» и «Все контрагенты» '
+                'со значениями из справочников',
+                'фильтры по клиенту и контрагенту стоят после даты'
+                if order_ok and selects_ok
+                else 'фильтры отсутствуют или стоят не на своём месте')
+
+    by_client = web.get('/contracts', query_string={
+        'client': other_client_id}).get_data(as_text=True)
+    by_contractor = web.get('/contracts', query_string={
+        'contractor': other_contractor_id}).get_data(as_text=True)
+    by_main_contractor = web.get('/contracts', query_string={
+        'contractor': contractor_id}).get_data(as_text=True)
+    client_filter_ok = ('ЧК-001' in by_client
+                        and 'ДГ-001' not in by_client
+                        and f'value="{other_client_id}" selected' in by_client)
+    contractor_filter_ok = ('ЧК-001' in by_contractor
+                            and 'ДГ-001' not in by_contractor
+                            and 'ДГ-001' in by_main_contractor
+                            and 'ЧК-001' not in by_main_contractor)
+    steps.check(client_filter_ok and contractor_filter_ok,
+                'Фильтры по клиенту и контрагенту отбирают договоры',
+                'по клиенту «Второй-Тест» виден только ЧК-001, по контрагенту '
+                '«Второй контрагент-Т» — только ЧК-001, по основному '
+                'контрагенту — только договоры ДГ; выбранное значение '
+                'остаётся в списке',
+                'фильтры по клиенту и контрагенту работают'
+                if client_filter_ok and contractor_filter_ok
+                else 'фильтры по клиенту или контрагенту не работают')
+
+    preserved = web.get('/contracts', query_string={
+        'client': other_client_id, 'sort': 'number',
+        'dir': 'asc'}).get_data(as_text=True)
+    preserved_ok = (f'client={other_client_id}' in preserved
+                    and 'name="sort" value="number"' in preserved
+                    and 'name="dir" value="asc"' in preserved)
+    steps.check(preserved_ok,
+                'Фильтры по клиенту и контрагенту сохраняются при сортировке',
+                'ссылки сортировки и пагинации содержат выбранного клиента '
+                'и контрагента',
+                'фильтры сохраняются в ссылках'
+                if preserved_ok else 'фильтры теряются при сортировке')
+
     page2_sorted = web.get('/contracts', query_string={
         'page': 2, 'sort': 'number', 'dir': 'asc'}).get_data(as_text=True)
     pagination_sort_ok = ('▲' in page2_sorted
@@ -287,6 +409,38 @@ def run():
                 'сортировка сохраняется при листании'
                 if pagination_sort_ok
                 else 'при смене страницы сортировка сбрасывается')
+
+    default_html = web.get('/contracts',
+                           query_string={'q': 'ДГ'}).get_data(as_text=True)
+    p_draft = default_html.find('ДГ-003')
+    p_active = default_html.find('ДГ-001')
+    p_closed = default_html.find('ДГ-002')
+    default_order_ok = (-1 < p_draft < p_active < p_closed)
+    steps.check(default_order_ok,
+                'По умолчанию договоры идут по статусу: проект, действующий, закрытый',
+                'без выбранной сортировки сначала идут проекты, затем '
+                'действующие и завершённые, внутри статуса — по дате убыванию',
+                'порядок статусов соблюдён' if default_order_ok
+                else f'порядок нарушен: {p_draft}, {p_active}, {p_closed}')
+
+    with app.app_context():
+        db.session.add_all([
+            Contract(number='ТАЙ-Б', client_id=client_id,
+                     signed_date=date(2025, 6, 1), status='active'),
+            Contract(number='ТАЙ-А', client_id=client_id,
+                     signed_date=date(2025, 6, 1), status='active'),
+        ])
+        db.session.commit()
+    tie_html = web.get('/contracts',
+                       query_string={'q': 'ТАЙ'}).get_data(as_text=True)
+    p_b = tie_html.find('ТАЙ-Б')
+    p_a = tie_html.find('ТАЙ-А')
+    tie_ok = -1 < p_a < p_b
+    steps.check(tie_ok,
+                'При равных статусе и дате договоры сортируются по номеру',
+                'договоры с одинаковым статусом и датой идут по возрастанию номера',
+                'номерной порядок соблюдён' if tie_ok
+                else f'номерной порядок нарушен: {p_a}, {p_b}')
 
     search_html = web.get('/contracts',
                           query_string={'q': 'Бухгалтерское'}).get_data(as_text=True)
@@ -356,6 +510,48 @@ def run():
                 'бейджи статусов договора отображаются'
                 if contract_badges_ok
                 else 'бейджи статусов договора отсутствуют или неверны')
+
+    # --- Шаг 7. У архивного клиента нет открытых договоров --------------
+    with app.app_context():
+        archived = Client(
+            name='ООО «Архив-Тест»', inn='7708888888', status='archived',
+            external_ref='dddddddd-2222-2222-2222-222222222222',
+            odata_url='http://archive-1c.local/odata/standard.odata/',
+            odata_username='archive-user', odata_password='archive-secret')
+        db.session.add(archived)
+        db.session.commit()
+        archived_id = archived.id
+        with fake_1c(contracts=ARCHIVED_CONTRACTS):
+            stats = sync_contracts(archived)
+        rows = (Contract.query.filter_by(client_id=archived_id)
+                .order_by(Contract.number).all())
+        archived_statuses = {c.number: c.status for c in rows}
+        archived_status_1c = {c.number: c.status_1c for c in rows}
+    steps.check(
+        stats['created'] == 3
+        and archived_statuses == {'АРХ-001': 'closed',
+                                  'АРХ-002': 'closed',
+                                  'АРХ-003': 'closed'}
+        and archived_status_1c == {'АРХ-001': 'Действует',
+                                   'АРХ-002': 'Проект',
+                                   'АРХ-003': 'Закрыт'},
+        'У архивного клиента нет проектов и действующих договоров',
+        'договоры из 1С со статусами «Действует» и «Проект» загружаются '
+        'как завершённые; исходный статус 1С сохраняется',
+        f"создано {stats['created']}, статусы: {archived_statuses}, "
+        f'статусы 1С: {archived_status_1c}')
+
+    archived_html = web.get(f'/clients/{archived_id}').get_data(as_text=True)
+    steps.check(
+        'Клиент в архиве' in archived_html and 'АРХ-001' in archived_html
+        and '>Действует</span>' not in archived_html
+        and '>Проект</span>' not in archived_html,
+        'В карточке архивного клиента показано ограничение по договорам',
+        'предупреждение «Клиент в архиве» и список завершённых договоров '
+        'без статусов «Действует» и «Проект»',
+        'предупреждение и завершённые договоры отображаются'
+        if 'Клиент в архиве' in archived_html
+        else 'предупреждение отсутствует')
 
     conclusion = ('Договоры загружаются из «1С:Бухгалтерия» по реквизитам '
                   'клиента, дублирование отсутствует.'

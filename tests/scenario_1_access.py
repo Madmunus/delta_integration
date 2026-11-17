@@ -68,6 +68,21 @@ def run():
                 'сотрудник успешно вошёл в систему',
                 f'HTTP {resp.status_code}')
 
+    # --- Шаг 1.1. Неверный пароль: форма входа, а не ошибка сервера ---------
+    wrong = app.test_client()
+    resp = wrong.post('/login', data={'email': EMAILS['emp1'],
+                                      'password': 'wrong-password'})
+    wrong_html = resp.get_data(as_text=True)
+    wrong_ok = (resp.status_code == 401
+                and 'Неверный email или пароль' in wrong_html
+                and 'name="password"' in wrong_html)
+    steps.check(wrong_ok,
+                'При неверном пароле показывается форма входа',
+                'система возвращает 401 и сообщение «Неверный email или '
+                'пароль» вместо страницы ошибки 500',
+                f'HTTP {resp.status_code}'
+                if wrong_ok else f'HTTP {resp.status_code}, форма не показана')
+
     # --- Шаг 2. В реестре видны только свои клиенты --------------------------
     html = web.get('/clients').get_data(as_text=True)
     seen = {
@@ -136,11 +151,26 @@ def run():
                 'доступны данные по всем клиентам контрагента',
                 'все связанные данные видны'
                 if 'ДОГ-ЧУЖОЙ' in contractor_html else 'часть данных скрыта')
-    steps.check('Ссылка' in contractor_html,
-                'В документах карточки контрагента есть столбец «Ссылка»',
-                'таблица документов содержит столбец «Ссылка», как в карточке клиента',
-                'столбец отображается' if 'Ссылка' in contractor_html
-                else 'столбец отсутствует')
+    contractor_ok = ('Ссылка' not in contractor_html
+                     and 'Редактировать документ' in contractor_html
+                     and '/documents/' in contractor_html)
+    steps.check(contractor_ok,
+                'Документы карточки контрагента оформлены как в реестре',
+                'нет столбца «Ссылка», вид документа ведёт в карточку '
+                'документа, есть кнопка редактирования',
+                'оформление совпадает с реестром' if contractor_ok
+                else 'оформление отличается от реестра')
+    client_html = boss.get(f'/clients/{ids[MY_ACTIVE]}').get_data(as_text=True)
+    client_ok = ('Ссылка' not in client_html
+                 and 'Редактировать документ' in client_html
+                 and 'Редактировать договор' in client_html
+                 and '/documents/' in client_html)
+    steps.check(client_ok,
+                'Вкладки карточки клиента оформлены как в реестрах',
+                'документы и договоры содержат кнопки редактирования, '
+                'вид документа ведёт в карточку, столбца «Ссылка» нет',
+                'оформление совпадает с реестрами' if client_ok
+                else 'оформление отличается от реестров')
 
     conclusion = ('Сотрудник видит только закреплённых за ним клиентов.'
                   if steps.passed else 'Ограничение видимости нарушено — см. шаги.')

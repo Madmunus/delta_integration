@@ -1,38 +1,95 @@
 {% extends 'base.html' %}
 {% block title %}Отчёт по клиентской базе{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">Отчёт по клиентской базе</h1>
+<h1 class="h4 mb-4">Отчёт по клиентам</h1>
 <div class="row g-3 mb-4">
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+  <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('clients.list_clients', status='active') }}"><div class="card-body">
     <div class="display-6">{{ active }}</div>
     <div class="text-muted">активных клиентов</div>
-  </div></div></div>
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+  </div></a></div>
+  <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
     <div class="display-6">{{ total }}</div>
     <div class="text-muted">всего в реестре</div>
-  </div></div></div>
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
+  </div></a></div>
+  <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('clients.list_clients', responsible='none') }}"><div class="card-body">
     <div class="display-6">{{ unassigned }}</div>
     <div class="text-muted">без ответственного</div>
-  </div></div></div>
+  </div></a></div>
 </div>
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Ответственный сотрудник</th>
+    <th>Активность</th>
     <th class="text-end">Всего клиентов</th>
     <th class="text-end">Активных</th>
     <th>Доля активных</th>
+    <th class="text-end"></th>
   </tr></thead>
   <tbody>
-  {% for fio, cnt, act in rows %}
-    <tr>
-      <td>{{ fio }}</td>
-      <td class="text-end">{{ cnt }}</td>
-      <td class="text-end">{{ act or 0 }}</td>
+  {% for uid, fio, is_active, cnt, act in rows %}
+    <tr class="{{ 'table-secondary' if not is_active }}">
+      <td><a href="{{ url_for('users.edit_user', user_id=uid) }}">{{ fio }}</a></td>
+      <td>
+        {% if is_active %}
+          <span class="badge text-bg-success">активен</span>
+        {% else %}
+          <span class="badge text-bg-secondary">отключён</span>
+        {% endif %}
+      </td>
+      <td class="text-end"><a href="{{ url_for('clients.list_clients', responsible=uid) }}">{{ cnt }}</a></td>
+      <td class="text-end"><a href="{{ url_for('clients.list_clients', responsible=uid, status='active') }}">{{ act or 0 }}</a></td>
       <td>
         {% set pct = (100 * (act or 0) / cnt)|round if cnt else 0 %}
         <div class="progress" style="min-width: 120px;">
           <div class="progress-bar bg-success" style="width: {{ pct }}%">{{ pct|int }}%</div>
+        </div>
+      </td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#responsible-clients-{{ uid }}"
+                aria-expanded="false"
+                aria-controls="responsible-clients-{{ uid }}"
+                title="Показать клиентов сотрудника"
+                aria-label="Показать клиентов сотрудника">
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      </td>
+    </tr>
+    <tr class="delta-report-detail">
+      <td colspan="6">
+        <div class="collapse" id="responsible-clients-{{ uid }}">
+          <div class="border rounded-3 bg-light-subtle p-2 m-1">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr>
+                <th>Клиент</th>
+                <th>ИНН</th>
+                <th>Статус</th>
+                <th>Добавлен</th>
+              </tr></thead>
+              <tbody>
+              {% for c in clients_by_user.get(uid, []) %}
+                <tr>
+                  <td><a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a></td>
+                  <td class="text-nowrap">{{ c.inn or '—' }}</td>
+                  <td>
+                    {% if c.is_active %}
+                      <span class="badge text-bg-success">активный</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">архивный</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-nowrap">{{ c.created_at|dt if c.created_at else '—' }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="text-muted">Клиентов нет</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
       </td>
     </tr>

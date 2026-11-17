@@ -1,120 +1,274 @@
 {% extends 'base.html' %}
+{% from 'contracts/_status.html' import contract_status_badge %}
+{% from 'documents/_status.html' import document_status_badge %}
+{% from 'tasks/_status.html' import task_status_badge %}
+{% from 'tasks/_priority.html' import task_priority_badge %}
 {% block title %}Панель управления{% endblock %}
+
+{# Плитки сводки: значение, подпись и, если задана, ссылка на реестр. #}
+{% macro stat_tiles(stats) -%}
+<div class="row g-2">
+  {% for s in stats %}
+  <div class="col-6">
+    {% if s.url %}
+    <a class="delta-stat" href="{{ s.url }}">
+    {% else %}
+    <div class="delta-stat">
+    {% endif %}
+      <div class="delta-stat-value text-{{ s.tone }}">
+        {{ s.value|money if s.money else s.value }}
+      </div>
+      <div class="delta-stat-label">{{ s.label }}</div>
+    {% if s.url %}</a>{% else %}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
 {% block content %}
 <h1 class="h4 mb-4">Панель управления</h1>
 
-<div class="row g-4">
-  {# ==================== Группа «Клиенты» ==================== #}
-  <div class="col-lg-6">
-    <div class="d-flex align-items-baseline mb-3">
-      <h2 class="h6 text-uppercase text-muted mb-0 me-2">Клиенты</h2>
-      <a class="small" href="{{ url_for('clients.list_clients') }}">весь реестр →</a>
-    </div>
-
-    <div class="row g-3 mb-3">
-      <div class="col-6">
-        <a class="card text-center h-100 text-reset text-decoration-none d-block"
-           href="{{ url_for('clients.list_clients', status='active') }}">
-          <div class="card-body">
-            <div class="display-6">{{ active_clients }}</div>
-            <div class="text-muted">активных клиентов</div>
-          </div>
-        </a>
+{# ==================== Клиенты ==================== #}
+<section class="card delta-registry mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="fa-solid fa-users me-1 text-muted"></i>Клиенты
+      <span class="badge text-bg-secondary">{{ clients_total }}</span>
+    </h2>
+    <a class="small" href="{{ url_for('clients.list_clients') }}">весь реестр →</a>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="delta-part-title">Первые 5 записей</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle delta-preview-table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Наименование</th>
+                <th>ИНН</th>
+                <th>Статус</th>
+                <th>Ответственный</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for c in clients_preview %}
+              <tr>
+                <td><a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name|truncate(40) }}</a></td>
+                <td class="text-nowrap">{{ c.inn or '—' }}</td>
+                <td>
+                  {% if c.is_active %}<span class="badge text-bg-success">активный</span>
+                  {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+                </td>
+                <td>{{ c.responsible.fio|truncate(25) if c.responsible else '—' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-muted">Записей пока нет</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div class="col-6">
-        <a class="card text-center h-100 text-reset text-decoration-none d-block"
-           href="{{ url_for('clients.list_clients', status='archived') }}">
-          <div class="card-body">
-            <div class="display-6">{{ archived_clients }}</div>
-            <div class="text-muted">архивных клиентов</div>
-          </div>
-        </a>
+      <div class="col-lg-4">
+        <div class="delta-part-title">Сводка</div>
+        {{ stat_tiles(client_stats) }}
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header bg-success-subtle text-success-emphasis fw-semibold">
-        Последние добавленные клиенты
-      </div>
-      <ul class="list-group list-group-flush">
-        {% for c in recent_clients %}
-          <li class="list-group-item d-flex justify-content-between">
-            <a href="{{ url_for('clients.detail', client_id=c.id) }}">{{ c.name }}</a>
-            <span class="text-muted">{{ c.created_at|dtfull }}</span>
-          </li>
-        {% else %}
-          <li class="list-group-item text-muted">Реестр пуст — добавьте клиента
-            или выполните синхронизацию из 1С</li>
-        {% endfor %}
-      </ul>
     </div>
   </div>
+</section>
 
-  {# ==================== Группа «Задачи» ==================== #}
-  <div class="col-lg-6">
-    <div class="d-flex align-items-baseline mb-3">
-      <h2 class="h6 text-uppercase text-muted mb-0 me-2">Задачи</h2>
-      <a class="small" href="{{ url_for('tasks.list_tasks') }}">все задачи →</a>
-    </div>
-
-    <div class="row g-3 mb-3">
-      <div class="col-6">
-        <a class="card text-center h-100 text-reset text-decoration-none d-block"
-           href="{{ url_for('tasks.list_tasks', status='open') }}">
-          <div class="card-body">
-            <div class="display-6 {{ 'text-danger' if overdue_count }}">{{ open_tasks_count }}</div>
-            <div class="text-muted">открытых задач</div>
-          </div>
-        </a>
-      </div>
-      <div class="col-6">
-        <a class="card text-center h-100 text-reset text-decoration-none d-block
-                  {{ 'border-danger' if overdue_count }}"
-           href="{{ url_for('tasks.list_tasks', overdue='1') }}">
-          <div class="card-body">
-            <div class="display-6 {{ 'text-danger' if overdue_count }}">{{ overdue_count }}</div>
-            <div class="text-muted">просрочено</div>
-          </div>
-        </a>
-      </div>
-    </div>
-
-    <div class="card mb-3">
-      <div class="card-header bg-danger-subtle text-danger-emphasis fw-semibold">
-        Ближайшие сроки
-      </div>
-      <ul class="list-group list-group-flush">
-        {% for t in upcoming %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">
-              {{ t.title|truncate(60) }}</a>
-            <span class="badge {{ 'text-bg-danger' if t.days_left < 0 else 'text-bg-warning' if t.days_left <= 3 else 'text-bg-secondary' }}">
-              {{ t.due_date|dt }}{% if t.days_left >= 0 %} (через {{ t.days_left }} дн.){% else %} (просрочено на {{ -t.days_left }} дн.){% endif %}
-            </span>
-          </li>
-        {% else %}
-          <li class="list-group-item text-muted">Ближайших сроков нет</li>
-        {% endfor %}
-      </ul>
-    </div>
-
-    {% if current_user.is_admin %}
-    <div class="card">
-      <div class="card-header bg-primary-subtle text-primary-emphasis fw-semibold">
-        Мои задачи
-      </div>
-      <ul class="list-group list-group-flush">
-        {% for t in my_tasks %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <a href="{{ url_for('tasks.edit_task', task_id=t.id) }}">{{ t.title|truncate(60) }}</a>
-            <span class="badge text-bg-secondary">{{ t.due_date|dt }}</span>
-          </li>
-        {% else %}
-          <li class="list-group-item text-muted">Нет назначенных задач</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
+{# ==================== Контрагенты ==================== #}
+<section class="card delta-registry mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="fa-solid fa-building me-1 text-muted"></i>Контрагенты
+      <span class="badge text-bg-secondary">{{ contractors_total }}</span>
+    </h2>
+    <a class="small" href="{{ url_for('contractors.list_contractors') }}">весь реестр →</a>
   </div>
-</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="delta-part-title">Первые 5 записей</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle delta-preview-table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Наименование</th>
+                <th>ИНН</th>
+                <th>Статус</th>
+                <th>Дата создания</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for c in contractors_preview %}
+              <tr>
+                <td><a href="{{ url_for('contractors.detail', contractor_id=c.id) }}">{{ (c.full_name or '—')|truncate(40) }}</a></td>
+                <td class="text-nowrap">{{ c.inn or '—' }}</td>
+                <td>
+                  {% if c.is_active %}<span class="badge text-bg-success">активный</span>
+                  {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
+                </td>
+                <td class="text-nowrap">{{ c.created_at|dt }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-muted">Записей пока нет</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="delta-part-title">Сводка</div>
+        {{ stat_tiles(contractor_stats) }}
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ==================== Договоры ==================== #}
+<section class="card delta-registry mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="fa-solid fa-file-signature me-1 text-muted"></i>Договоры
+      <span class="badge text-bg-secondary">{{ contracts_total }}</span>
+    </h2>
+    <a class="small" href="{{ url_for('contracts.list_contracts') }}">весь реестр →</a>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="delta-part-title">Первые 5 записей</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle delta-preview-table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Клиент</th>
+                <th>Контрагент</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for c in contracts_preview %}
+              <tr>
+                <td><a href="{{ url_for('contracts.detail', contract_id=c.id) }}">{{ c.number|truncate(25) }}</a></td>
+                <td class="text-nowrap">{{ c.signed_date|dt }}</td>
+                <td><a href="{{ url_for('clients.detail', client_id=c.client_id) }}">{{ c.client.name|truncate(30) }}</a></td>
+                <td>
+                  {% if c.contractor %}
+                  <a href="{{ url_for('contractors.detail', contractor_id=c.contractor.id) }}">{{ c.contractor.full_name|truncate(30) }}</a>
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td>{{ contract_status_badge(c) }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="text-muted">Записей пока нет</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="delta-part-title">Сводка</div>
+        {{ stat_tiles(contract_stats) }}
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ==================== Документы ==================== #}
+<section class="card delta-registry mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="fa-solid fa-file-lines me-1 text-muted"></i>Документы
+      <span class="badge text-bg-secondary">{{ documents_total }}</span>
+    </h2>
+    <a class="small" href="{{ url_for('documents.list_documents') }}">весь реестр →</a>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="delta-part-title">Первые 5 записей</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle delta-preview-table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Вид документа</th>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for d in documents_preview %}
+              <tr>
+                <td><a href="{{ url_for('documents.detail', document_id=d.id) }}">{{ d.doc_type|truncate(30) }}</a></td>
+                <td>{{ d.number or '—' }}</td>
+                <td class="text-nowrap">{{ d.doc_date|dt }}</td>
+                <td>{{ document_status_badge(d) }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-muted">Записей пока нет</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="delta-part-title">Сводка</div>
+        {{ stat_tiles(document_stats) }}
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ==================== Задачи ==================== #}
+<section class="card delta-registry mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="fa-solid fa-list-check me-1 text-muted"></i>Задачи
+      <span class="badge text-bg-secondary">{{ tasks_total }}</span>
+    </h2>
+    <a class="small" href="{{ url_for('tasks.list_tasks') }}">весь реестр →</a>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="delta-part-title">Первые 5 записей</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle delta-preview-table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Задача</th>
+                <th>Срок</th>
+                <th>Приоритет</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for t in tasks_preview %}
+              <tr>
+                <td><a href="{{ url_for('tasks.detail', task_id=t.id) }}">{{ t.title|truncate(40) }}</a></td>
+                <td class="text-nowrap {{ 'text-danger' if t.is_overdue }}">
+                  {{ t.due_date|dt if t.due_date else '—' }}
+                </td>
+                <td>{{ task_priority_badge(t) }}</td>
+                <td>{{ task_status_badge(t) }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-muted">Записей пока нет</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="delta-part-title">Сводка</div>
+        {{ stat_tiles(task_stats) }}
+      </div>
+    </div>
+  </div>
+</section>
 {% endblock %}

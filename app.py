@@ -14,113 +14,15 @@ import os
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, logout_user
 from flask_wtf import CSRFProtect
-from sqlalchemy import inspect, text
 
 from engine import models as _m  # noqa: F401  (регистрация моделей в db)
 from engine.config import config
 from engine.forms import PASSWORD_HINT
-from engine.models import User, db
+from engine.models import (User, assign_missing_task_assignees,
+                           close_archived_client_contracts, db)
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
-
-
-def _ensure_schema():
-    """Привести существующую БД к актуальной схеме без полноценных миграций."""
-    inspector = inspect(db.engine)
-    tables = set(inspector.get_table_names())
-    if not tables:
-        return
-
-    def columns_of(table):
-        return {column['name'] for column in inspector.get_columns(table)}
-
-    with db.engine.begin() as connection:
-        # clients.date_added (DATE) → clients.created_at (DATETIME)
-        if 'clients' in tables:
-            client_columns = columns_of('clients')
-            if 'date_added' in client_columns and 'created_at' not in client_columns:
-                connection.execute(text(
-                    'ALTER TABLE clients RENAME COLUMN date_added TO created_at'))
-                client_columns.discard('date_added')
-                client_columns.add('created_at')
-            elif 'created_at' not in client_columns:
-                connection.execute(text(
-                    'ALTER TABLE clients ADD COLUMN created_at '
-                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
-                client_columns.add('created_at')
-            # В старых записях хранилась только дата — добавляем время.
-            connection.execute(text(
-                "UPDATE clients SET created_at = created_at || ' 00:00:00' "
-                'WHERE created_at IS NOT NULL AND length(created_at) = 10'))
-
-        # contractors.description → contractors.notes (заметки пользователя)
-        if 'contractors' in tables:
-            contractor_columns = columns_of('contractors')
-            if 'description' in contractor_columns and 'notes' not in contractor_columns:
-                connection.execute(text(
-                    'ALTER TABLE contractors '
-                    'RENAME COLUMN description TO notes'))
-            # Статус контрагента вычисляется из DeletionMark (как у клиентов)
-            if 'status' not in contractor_columns:
-                connection.execute(text(
-                    'ALTER TABLE contractors ADD COLUMN status '
-                    "VARCHAR(20) NOT NULL DEFAULT 'active'"))
-
-        # notes — внутренние заметки пользователя у договоров и документов
-        for table in ('contracts', 'documents'):
-            if table in tables and 'notes' not in columns_of(table):
-                connection.execute(text(
-                    f"ALTER TABLE {table} ADD COLUMN notes "
-                    "TEXT NOT NULL DEFAULT ''"))
-
-        # created_at во всех остальных таблицах моделей
-        for table in ('onec_settings', 'contractors', 'contracts',
-                      'documents', 'reporting_deadlines'):
-            if table not in tables:
-                continue
-            if 'created_at' not in columns_of(table):
-                connection.execute(text(
-                    f'ALTER TABLE {table} ADD COLUMN created_at '
-                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
-                connection.execute(text(
-                    f'UPDATE {table} SET created_at = CURRENT_TIMESTAMP '
-                    "WHERE created_at = '1970-01-01 00:00:00'"))
-
-        # Статус «просрочена» больше не хранится: просрочка вычисляется
-        # по сроку выполнения задачи (due_date < сегодня и не выполнена).
-        if 'tasks' in tables:
-            connection.execute(text(
-                "UPDATE tasks SET status = 'in_progress' "
-                "WHERE status = 'overdue'"))
-
-        # Внутренний признак договора «Обработан»
-        if 'contracts' in tables and 'processed' not in columns_of('contracts'):
-            connection.execute(text(
-                'ALTER TABLE contracts ADD COLUMN processed '
-                'BOOLEAN NOT NULL DEFAULT FALSE'))
-
-        # Внутренний признак документа «Обработан»
-        if 'documents' in tables and 'processed' not in columns_of('documents'):
-            connection.execute(text(
-                'ALTER TABLE documents ADD COLUMN processed '
-                'BOOLEAN NOT NULL DEFAULT FALSE'))
-
-        # updated_at во всех таблицах моделей (как у tasks).
-        # Существующим записям выставляем дату создания.
-        for table in ('users', 'clients', 'contractors', 'contracts',
-                      'documents', 'onec_settings',
-                      'reporting_deadlines', 'tasks'):
-            if table not in tables:
-                continue
-            if 'updated_at' not in columns_of(table):
-                connection.execute(text(
-                    f'ALTER TABLE {table} ADD COLUMN updated_at '
-                    "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"))
-            connection.execute(text(
-                f'UPDATE {table} SET updated_at = created_at '
-                "WHERE updated_at = '1970-01-01 00:00:00' "
-                'AND created_at IS NOT NULL'))
 
 
 def create_app(config_name=None):
@@ -256,7 +158,20 @@ def create_app(config_name=None):
     # --- База данных ---
     with app.app_context():
         db.create_all()
-        _ensure_schema()
+        # Приводим существующие данные к правилам системы:
+        # — у архивных клиентов не может быть проектов и действующих
+        #   договоров;
+        # — задача не может быть без исполнителя.
+        closed = close_archived_client_contracts()
+        assigned = assign_missing_task_assignees()
+        if closed or assigned:
+            db.session.commit()
+            logger = logging.getLogger(__name__)
+            if closed:
+                logger.info('У архивных клиентов закрыто договоров: %s', closed)
+            if assigned:
+                logger.info('Задачам без исполнителя назначен исполнитель: %s',
+                            assigned)
 
     return app
 

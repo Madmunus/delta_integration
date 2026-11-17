@@ -2,41 +2,121 @@
 {% from 'contracts/_status.html' import contract_status_badge %}
 {% block title %}Отчёт по договорам{% endblock %}
 {% block content %}
-<h1 class="h4 mb-4">Отчёт по договорам и поступлениям</h1>
-<div class="row g-3 mb-4">
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
-    <div class="display-6">{{ by_status.get('active', {}).get('count', 0) }}</div>
-    <div class="text-muted">действующих договоров</div>
-  </div></div></div>
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
-    <div class="display-6">{{ by_status.get('closed', {}).get('count', 0) }}</div>
-    <div class="text-muted">завершённых</div>
-  </div></div></div>
-  <div class="col-md-4"><div class="card text-center"><div class="card-body">
-    <div class="display-6">{{ total_amount|money }}</div>
-    <div class="text-muted">стоимость действующих, руб.</div>
-  </div></div></div>
+<div class="mb-4">
+  <h1 class="h4 mb-1">Отчёт по договорам</h1>
+  <p class="text-muted mb-0">
+    Договоры сгруппированы по клиентам: количество по статусам и суммы.
+    Суммы указаны в рублях. У архивных клиентов — только завершённые
+    договоры.
+  </p>
 </div>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
+    <div class="display-6">{{ totals.clients }}</div>
+    <div class="text-muted">клиентов с договорами</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('contracts.list_contracts') }}"><div class="card-body">
+    <div class="display-6">{{ totals.contracts }}</div>
+    <div class="text-muted">всего договоров</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('contracts.list_contracts', status='draft') }}"><div class="card-body">
+    <div class="display-6">{{ totals.draft }}</div>
+    <div class="text-muted">проектов</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('contracts.list_contracts', status='active') }}"><div class="card-body">
+    <div class="display-6 text-success">{{ totals.active }}</div>
+    <div class="text-muted">действующих</div>
+  </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('contracts.list_contracts', status='closed') }}"><div class="card-body">
+    <div class="display-6 text-secondary">{{ totals.closed }}</div>
+    <div class="text-muted">завершённых</div>
+  </div></a></div>
+</div>
+
+<div class="table-responsive">
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
-    <th>№</th><th>Клиент</th><th>Дата</th>
-    <th class="text-end">Стоимость, руб.</th><th>Действие</th><th>Статус</th>
-    <th>Дата создания</th>
+    <th>Клиент</th>
+    <th class="text-end">Договоров</th>
+    <th class="text-end">Проект</th>
+    <th class="text-end">Действующие</th>
+    <th class="text-end">Завершённые</th>
+    <th class="text-end">Сумма действующих</th>
+    <th class="text-end">Сумма всех</th>
+    <th class="text-end"></th>
   </tr></thead>
   <tbody>
-  {% for c in contracts %}
+  {% for g in groups %}
     <tr>
-      <td>{{ c.number }}</td>
-      <td><a href="{{ url_for('clients.detail', client_id=c.client_id) }}">{{ c.client.name|truncate(40) }}</a></td>
-      <td class="text-nowrap">{{ c.signed_date|dt }}</td>
-      <td class="text-end">{{ c.amount|money }}</td>
-      <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
-      <td>{{ contract_status_badge(c) }}</td>
-      <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
+      <td>
+        <a href="{{ url_for('clients.detail', client_id=g.client.id) }}">{{ g.client.name }}</a>
+        {% if not g.client.is_active %}<span class="badge text-bg-secondary ms-1">архивный</span>{% endif %}
+      </td>
+      <td class="text-end"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id) }}">{{ g.total }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='draft') }}">{{ g.counts.get('draft', 0) }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='active') }}">{{ g.counts.get('active', 0) }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='closed') }}">{{ g.counts.get('closed', 0) }}</a></td>
+      <td class="text-end text-nowrap">{{ g.amount_active|money }}</td>
+      <td class="text-end text-nowrap">{{ g.amount_total|money }}</td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#client-contracts-{{ g.client.id }}"
+                aria-expanded="false"
+                aria-controls="client-contracts-{{ g.client.id }}"
+                title="Показать договоры клиента"
+                aria-label="Показать договоры клиента">
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      </td>
+    </tr>
+    <tr class="delta-report-detail">
+      <td colspan="8">
+        <div class="collapse" id="client-contracts-{{ g.client.id }}">
+          <div class="border rounded-3 bg-light-subtle p-2 m-1">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Контрагент</th>
+                <th class="text-end">Стоимость</th>
+                <th>Срок действия</th>
+                <th>Статус</th>
+              </tr></thead>
+              <tbody>
+              {% for c in g.contracts %}
+                <tr>
+                  <td><a href="{{ url_for('contracts.detail', contract_id=c.id) }}">{{ c.number }}</a></td>
+                  <td class="text-nowrap">{{ c.signed_date|dt }}</td>
+                  <td>
+                    {% if c.contractor %}
+                      <a href="{{ url_for('contractors.detail', contractor_id=c.contractor_id) }}">{{ c.contractor_name }}</a>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td class="text-end text-nowrap">{{ c.amount|money }}</td>
+                  <td class="text-nowrap">{{ c.start_date|dt if c.start_date }} — {{ c.end_date|dt if c.end_date }}</td>
+                  <td>{{ contract_status_badge(c) }}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="text-muted">Договоров нет</td></tr>
+    <tr><td colspan="8" class="text-muted">Договоров нет</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

@@ -1,7 +1,31 @@
 {% extends 'base.html' %}
+{% from 'tasks/_status.html' import task_status_badge %}
+{% from 'tasks/_priority.html' import task_priority_badge %}
 {% block title %}Отчёт по задачам{% endblock %}
 {% block content %}
 <h1 class="h4 mb-4">Отчёт по задачам</h1>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('tasks.list_tasks') }}"><div class="card-body">
+    <div class="display-6">{{ totals.total }}</div>
+    <div class="text-muted">всего задач</div>
+  </div></a></div>
+  <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('tasks.list_tasks', status='done') }}"><div class="card-body">
+    <div class="display-6 text-success">{{ totals.done }}</div>
+    <div class="text-muted">выполнено</div>
+  </div></a></div>
+  <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('tasks.list_tasks', status='open') }}"><div class="card-body">
+    <div class="display-6">{{ totals.open }}</div>
+    <div class="text-muted">в работе</div>
+  </div></a></div>
+  <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('tasks.list_tasks', status='overdue') }}"><div class="card-body">
+    <div class="display-6 text-danger">{{ totals.overdue }}</div>
+    <div class="text-muted">просрочено</div>
+  </div></a></div>
+</div>
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Исполнитель</th>
@@ -9,24 +33,70 @@
     <th class="text-end">В работе</th>
     <th class="text-end">Просрочено</th>
     <th class="text-end">Всего</th>
+    <th class="text-end"></th>
   </tr></thead>
   <tbody>
-  {% for fio, done, work, over in rows %}
+  {% for uid, fio, done, work, over in rows %}
     <tr>
-      <td>{{ fio }}</td>
-      <td class="text-end text-success">{{ done or 0 }}</td>
-      <td class="text-end">{{ work or 0 }}</td>
-      <td class="text-end {{ 'text-danger fw-bold' if over }}">{{ over or 0 }}</td>
-      <td class="text-end">{{ (done or 0) + (work or 0) }}</td>
+      <td><a href="{{ url_for('users.edit_user', user_id=uid) }}">{{ fio }}</a></td>
+      <td class="text-end text-success"><a
+        href="{{ url_for('tasks.list_tasks', assignee=uid, status='done') }}">{{ done or 0 }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('tasks.list_tasks', assignee=uid, status='open') }}">{{ work or 0 }}</a></td>
+      <td class="text-end {{ 'text-danger fw-bold' if over }}"><a
+        href="{{ url_for('tasks.list_tasks', assignee=uid, status='overdue') }}">{{ over or 0 }}</a></td>
+      <td class="text-end"><a
+        href="{{ url_for('tasks.list_tasks', assignee=uid) }}">{{ (done or 0) + (work or 0) }}</a></td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#assignee-tasks-{{ uid }}"
+                aria-expanded="false"
+                aria-controls="assignee-tasks-{{ uid }}"
+                title="Показать задачи исполнителя"
+                aria-label="Показать задачи исполнителя">
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      </td>
+    </tr>
+    <tr class="delta-report-detail">
+      <td colspan="6">
+        <div class="collapse" id="assignee-tasks-{{ uid }}">
+          <div class="border rounded-3 bg-light-subtle p-2 m-1">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr>
+                <th>Задача</th>
+                <th>Клиент</th>
+                <th>Срок</th>
+                <th>Приоритет</th>
+                <th>Статус</th>
+              </tr></thead>
+              <tbody>
+              {% for t in tasks_by_assignee.get(uid, []) %}
+                <tr>
+                  <td><a href="{{ url_for('tasks.detail', task_id=t.id) }}">{{ t.title }}</a>
+                    {% if t.reporting_deadline_id %}<span class="badge text-bg-info"
+                      title="Создана автоматически по сроку отчётности">авто</span>{% endif %}</td>
+                  <td>{% if t.client %}<a
+                    href="{{ url_for('clients.detail', client_id=t.client_id) }}">{{ t.client.name }}</a>{% else %}—{% endif %}</td>
+                  <td class="text-nowrap">{{ t.due_date|dt if t.due_date else '—' }}
+                    {% if t.days_left is not none and t.status != 'done' %}
+                      {% if t.days_left < 0 %}<span class="badge text-bg-danger">−{{ -t.days_left }} дн.</span>
+                      {% elif t.days_left <= 3 %}<span class="badge text-bg-warning">{{ t.days_left }} дн.</span>{% endif %}
+                    {% endif %}</td>
+                  <td>{{ task_priority_badge(t) }}</td>
+                  <td>{{ task_status_badge(t) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="text-muted">Задач нет</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </td>
     </tr>
   {% endfor %}
-  <tr class="table-light">
-    <td><em>без исполнителя</em></td>
-    <td class="text-end">{{ no_assignee[0] }}</td>
-    <td class="text-end">{{ no_assignee[1] }}</td>
-    <td class="text-end">{{ no_assignee[2] }}</td>
-    <td class="text-end">{{ no_assignee[0] + no_assignee[1] + no_assignee[2] }}</td>
-  </tr>
   </tbody>
 </table>
 {% endblock %}

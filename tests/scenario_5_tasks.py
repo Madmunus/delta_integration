@@ -1,8 +1,8 @@
 """Сценарий 5 (ФТ-5): задачи с привязкой к клиенту и исполнителю.
 
 Создание задачи с привязкой к клиенту и исполнителю; изменение статуса;
-проверка отображения в виджете «Мои задачи». Результат: задача
-создаётся, статусы изменяются, виджет обновляется.
+проверка сводки задач на панели управления. Результат: задача создаётся,
+статусы изменяются, сводка обновляется.
 """
 import re
 from datetime import date, timedelta
@@ -11,14 +11,22 @@ from engine.models import Task, db
 from tests.base import EMAILS, Steps, create_scenario_app, login, seed_users
 
 FT = 'ФТ-5'
-TITLE = 'Создание задачи, изменение статуса, виджет «Мои задачи»'
+TITLE = 'Создание задачи, изменение статуса, сводка на панели управления'
 DESCRIPTION = ('Создание задачи с привязкой к клиенту и исполнителю; '
-               'изменение статуса; проверка отображения в виджете «Мои задачи». '
-               'Результат: задача создаётся, статусы изменяются, '
-               'виджет обновляется.')
+               'изменение статуса; проверка сводки задач на панели '
+               'управления. Результат: задача создаётся, статусы изменяются, '
+               'сводка обновляется.')
 
 TASK_TITLE = 'Подготовить декларацию по НДС (сценарий 3)'
 CLIENT_NAME = 'ООО «Ромашка-Тест»'
+
+
+def _task_tiles(html):
+    """Плитки сводки блока «Задачи» на панели управления."""
+    block = html.split('fa-list-check', 1)[-1].split('</section>', 1)[0]
+    return {label.strip(): value.strip() for value, label in re.findall(
+        r'delta-stat-value[^>]*>\s*([^<]+?)\s*</div>\s*'
+        r'<div class="delta-stat-label">([^<]+)</div>', block)}
 
 
 def run():
@@ -67,6 +75,36 @@ def run():
          f'статус {task.status}, срок {task.due_date}'
          if task else 'задача не найдена'))
 
+    # --- Шаг 2.1. Задача не может быть без исполнителя --------------------
+    resp = web.post('/tasks/add', data={
+        'title': 'Задача без исполнителя',
+        'client_id': str(client_id),
+        'assignee_id': '',
+        'due_date': due,
+        'priority': '2',
+        'status': 'new',
+    })
+    rejected_html = resp.get_data(as_text=True)
+    form_html = web.get('/tasks/add').get_data(as_text=True)
+    with app.app_context():
+        missing = Task.query.filter_by(title='Задача без исполнителя').first()
+        column_required = Task.__table__.c.assignee_id.nullable is False
+    rule_ok = (resp.status_code == 200
+               and missing is None
+               and column_required
+               and 'Выберите исполнителя задачи' in rejected_html
+               and '— не назначен —' not in form_html
+               and 'name="assignee_id"' in form_html)
+    steps.check(rule_ok,
+                'Задача не может быть без исполнителя',
+                'без исполнителя задача не сохраняется, поле обязательно, '
+                'варианта «— не назначен —» нет',
+                f'HTTP {resp.status_code}, задача '
+                f'{"создана" if missing else "не создана"}, '
+                f'поле обязательно: {"да" if column_required else "нет"}, '
+                f'подсказка об ошибке: '
+                f'{"есть" if "Выберите исполнителя задачи" in rejected_html else "нет"}')
+
     # --- Шаг 3. Задача в реестре задач ------------------------------------
     html = web.get('/tasks').get_data(as_text=True)
     steps.check(TASK_TITLE[:40] in html,
@@ -83,25 +121,53 @@ def run():
     controls_ok = ('Поиск по таблице' in html
                    and 'name="q"' in html
                    and 'fa-xmark' in html
-                   and 'name="date_from"' in html
-                   and 'name="date_to"' in html
+                   and 'name="client"' in html
+                   and 'Все клиенты' in html
+                   and 'name="assignee"' in html
+                   and 'value="mine"' in html
+                   and 'Только мои' in html
+                   and '— не назначен —' not in html
+                   and 'name="priority"' in html
+                   and 'Все приоритеты' in html
+                   and 'name="date_range"' in html
+                   and 'title="Срок: с — по"' in html
                    and 'title="Применить фильтр"' in html
                    and 'fa-magnifying-glass' in html
                    and 'title="Сбросить фильтр"' in html
                    and 'fa-arrow-rotate-left' in html
                    and 'title="Добавить задачу"' in html
                    and 'fa-plus' in html
-                   and 'name="overdue"' in html
+                   and 'name="mine"' not in html
+                   and 'name="overdue"' not in html
+                   and 'value="overdue"' in html
                    and 'Просроченные' in html
-                   and 'value="overdue"' not in html
+                   and html.find('Открытые') < html.find('Просроченные')
+                   < html.find('Новые')
                    and 'Новая задача' not in html)
     steps.check(controls_ok,
-                'В реестре задач есть поиск, фильтр по дате и кнопки действий',
-                'поле «Поиск по таблице» с очисткой, фильтр «Дата создания: '
-                'с / по», кнопки применения, сброса и синяя кнопка «+» '
-                'вместо «Новая задача»',
+                'В реестре задач есть поиск, фильтры по клиенту, приоритету '
+                'и сроку, кнопки действий',
+                'поля «Поиск по таблице», «Клиент», «Исполнитель» с пунктом '
+                '«Только мои», фильтр «Срок: с / по», «Приоритет», «Статус» '
+                'с пунктом «Просроченные» после «Открытых»; кнопки применения, '
+                'сброса и синяя кнопка «+»',
                 'элементы фильтрации и кнопки присутствуют'
                 if controls_ok else 'элементы фильтрации или кнопки неверны')
+
+    # Порядок фильтров: поиск, клиент, исполнитель, срок, приоритет, статус
+    order_keys = ['name="q"', 'name="client"', 'name="assignee"',
+                  'name="date_range"', 'name="priority"', 'name="status"']
+    positions = [html.find(key) for key in order_keys]
+    order_ok = (all(pos >= 0 for pos in positions)
+                and positions == sorted(positions)
+                and positions[2] < html.find('value="mine"') < positions[3]
+                and positions[5] < html.find('value="overdue"'))
+    steps.check(order_ok,
+                'Фильтры реестра задач идут в заданном порядке',
+                'Поиск по таблице, Клиент, Исполнитель (с пунктом «Только мои»), '
+                'срок, Приоритет, Статус (с пунктом «Просроченные»)',
+                'порядок фильтров соблюдён' if order_ok
+                else 'порядок фильтров отличается')
     search_ok = (TASK_TITLE[:40] in filtered
                  and TASK_TITLE[:40] not in unmatched)
     steps.check(search_ok,
@@ -109,15 +175,66 @@ def run():
                 'поиск «Подготовить декларацию» находит задачу, '
                 'несуществующий текст — ничего не находит',
                 'поиск работает' if search_ok else 'поиск не фильтрует записи')
-    today = date.today().strftime('%d.%m.%Y')
+    due_display = (date.today() + timedelta(days=5)).strftime('%d.%m.%Y')
+    today_display = date.today().strftime('%d.%m.%Y')
     date_filtered = web.get('/tasks', query_string={
-        'date_from': today, 'date_to': today}).get_data(as_text=True)
-    date_ok = TASK_TITLE[:40] in date_filtered
+        'date_range': f'{due_display} — {due_display}'}).get_data(as_text=True)
+    today_filtered = web.get('/tasks', query_string={
+        'date_range': today_display}).get_data(as_text=True)
+    date_ok = (TASK_TITLE[:40] in date_filtered
+               and TASK_TITLE[:40] not in today_filtered)
     steps.check(date_ok,
-                'В реестре задач работает фильтр по дате создания',
-                'задача, созданная сегодня, попадает в диапазон «с — по»',
-                'фильтр по дате работает' if date_ok
-                else 'задача не найдена по дате создания')
+                'В реестре задач фильтр по дате работает по сроку',
+                'задача попадает в диапазон по своему сроку и не попадает '
+                'в диапазон по дате создания',
+                'фильтр по сроку работает' if date_ok
+                else 'задача не найдена по сроку')
+
+    by_priority = web.get('/tasks', query_string={
+        'priority': '1'}).get_data(as_text=True)
+    by_other_priority = web.get('/tasks', query_string={
+        'priority': '3'}).get_data(as_text=True)
+    priority_ok = (TASK_TITLE[:40] in by_priority
+                   and TASK_TITLE[:40] not in by_other_priority)
+    steps.check(priority_ok,
+                'В реестре задач работает фильтр по приоритету',
+                'задача с высоким приоритетом видна при фильтре «Высокий» '
+                'и скрыта при фильтре «Низкий»',
+                'фильтр по приоритету работает' if priority_ok
+                else 'фильтр по приоритету не работает')
+
+    by_client = web.get('/tasks', query_string={
+        'client': str(client_id)}).get_data(as_text=True)
+    by_other_client = web.get('/tasks', query_string={
+        'client': '999999'}).get_data(as_text=True)
+    client_filter_ok = (TASK_TITLE[:40] in by_client
+                        and TASK_TITLE[:40] not in by_other_client)
+    steps.check(client_filter_ok,
+                'В реестре задач работает фильтр по клиенту',
+                'задача видна при фильтре по своему клиенту и скрыта '
+                'при фильтре по другому клиенту',
+                'фильтр по клиенту работает' if client_filter_ok
+                else 'фильтр по клиенту не работает')
+
+    with app.app_context():
+        db.session.add(Task(title='Задача другого исполнителя',
+                            status=Task.STATUS_NEW, priority=2,
+                            assignee_id=users['emp1']))
+        db.session.commit()
+    mine_html = web.get('/tasks', query_string={
+        'assignee': 'mine'}).get_data(as_text=True)
+    mine_ok = (TASK_TITLE[:40] in mine_html
+               and 'Задача другого исполнителя' not in mine_html)
+    steps.check(mine_ok,
+                'Пункт «Только мои» фильтрует задачи по текущему исполнителю',
+                'руководитель видит свои задачи и не видит задачи, '
+                'назначенные другому сотруднику',
+                'фильтр «Только мои» работает' if mine_ok
+                else 'фильтр «Только мои» не работает')
+    with app.app_context():
+        Task.query.filter_by(title='Задача другого исполнителя').delete(
+            synchronize_session=False)
+        db.session.commit()
 
     # --- Шаг 3.2. Страница просмотра задачи -------------------------------
     detail_html = web.get(f'/tasks/{task_id}').get_data(as_text=True)
@@ -195,6 +312,44 @@ def run():
                 synchronize_session=False)
         db.session.commit()
 
+    # --- Шаг 3.4.2. Сортировка по умолчанию: статус → приоритет → срок ---
+    with app.app_context():
+        db.session.add_all([
+            Task(title='Сорт-выполнена-высокий', status=Task.STATUS_DONE,
+                 priority=1, due_date=date.today() + timedelta(days=1),
+                 assignee_id=users['admin']),
+            Task(title='Сорт-новая-низкий', status=Task.STATUS_NEW,
+                 priority=3, due_date=date.today() + timedelta(days=1),
+                 assignee_id=users['admin']),
+            Task(title='Сорт-новая-высокий-позже', status=Task.STATUS_NEW,
+                 priority=1, due_date=date.today() + timedelta(days=9),
+                 assignee_id=users['admin']),
+            Task(title='Сорт-в-работе-средний', status=Task.STATUS_IN_PROGRESS,
+                 priority=2, due_date=date.today() + timedelta(days=3),
+                 assignee_id=users['admin']),
+            Task(title='Сорт-новая-высокий-раньше', status=Task.STATUS_NEW,
+                 priority=1, due_date=date.today() + timedelta(days=2),
+                 assignee_id=users['admin']),
+        ])
+        db.session.commit()
+    default_html = web.get('/tasks').get_data(as_text=True)
+    expected_order = ['Сорт-новая-высокий-раньше', 'Сорт-новая-высокий-позже',
+                      'Сорт-новая-низкий', 'Сорт-в-работе-средний',
+                      'Сорт-выполнена-высокий']
+    expected_pos = [default_html.find(name) for name in expected_order]
+    default_sort_ok = (all(pos >= 0 for pos in expected_pos)
+                       and expected_pos == sorted(expected_pos))
+    steps.check(default_sort_ok,
+                'По умолчанию задачи идут по статусу, приоритету и сроку',
+                'Новая → В работе → Выполнена; внутри статуса Высокий → '
+                'Средний → Низкий; внутри приоритета — ближайший срок',
+                'порядок по умолчанию соблюдён' if default_sort_ok
+                else 'порядок по умолчанию неверен')
+    with app.app_context():
+        Task.query.filter(Task.title.like('Сорт-%')).delete(
+            synchronize_session=False)
+        db.session.commit()
+
     # --- Шаг 3.5. Кнопки движения по статусам ------------------------------
     arrows_ok = ('fa-arrow-left' in html
                  and 'fa-arrow-right' in html
@@ -232,15 +387,19 @@ def run():
                 'переходы в обе стороны доступны' if chain_mid_ok
                 else 'переходы по статусам неверны')
 
-    # --- Шаг 5. Виджет «Мои задачи» ----------------------------------------
+    # --- Шаг 5. Блок задач на панели управления ----------------------------
     html = web.get('/dashboard').get_data(as_text=True)
-    widget = html.split('Мои задачи', 1)
-    in_widget = (len(widget) > 1
-                 and TASK_TITLE[:40] in widget[1][:3000])
-    steps.check('Мои задачи' in html and in_widget,
-                'Задача отображается в виджете «Мои задачи»',
-                'открытая задача исполнителя видна в виджете на панели',
-                'задача в виджете' if in_widget else 'задачи нет в виджете')
+    tiles = _task_tiles(html)
+    dashboard_ok = ('fa-list-check' in html
+                    and TASK_TITLE[:40] in html
+                    and 'Мои задачи' not in html
+                    and tiles.get('В работе') == '1')
+    steps.check(dashboard_ok,
+                'Блок «Задачи» на панели показывает реестр и сводку',
+                'задача видна среди первых записей, в сводке — одна '
+                'задача «в работе»; раздела «Мои задачи» нет',
+                'блок задач заполнен' if dashboard_ok
+                else 'блок задач или сводка неверны')
 
     # --- Шаг 6. Смена статуса: в работе → выполнена ------------------------
     resp = web.post(f'/tasks/{task_id}/status', data={'status': 'done'},
@@ -252,16 +411,18 @@ def run():
                 'статус задачи в базе — «выполнена»',
                 f'HTTP {resp.status_code}, статус {task.status}')
 
-    # --- Шаг 7. Виджет обновился -------------------------------------------
+    # --- Шаг 7. Сводка задач на панели обновилась --------------------------
     html = web.get('/dashboard').get_data(as_text=True)
-    widget = html.split('Мои задачи', 1)
-    in_widget = (len(widget) > 1
-                 and TASK_TITLE[:40] in widget[1][:3000])
-    steps.check(not in_widget,
-                'Виджет обновился после смены статуса',
-                'выполненная задача исчезла из виджета «Мои задачи»',
-                'виджет обновился' if not in_widget
-                else 'выполненная задача всё ещё в виджете')
+    tiles = _task_tiles(html)
+    updated_ok = (tiles.get('Выполнены') == '1'
+                  and tiles.get('В работе') == '0'
+                  and 'Мои задачи' not in html)
+    steps.check(updated_ok,
+                'Сводка задач на панели обновилась после смены статуса',
+                'выполненная задача учтена в плитке «Выполнены», '
+                'в плитке «В работе» — 0',
+                'сводка обновилась' if updated_ok
+                else 'сводка задач не обновилась')
 
     # --- Шаг 8. Переход к созданию задачи из карточки клиента --------------
     card_html = web.get(f'/clients/{client_id}').get_data(as_text=True)
@@ -272,6 +433,19 @@ def run():
                 'Из карточки клиента открывается задача с выбранным клиентом',
                 'кнопка «+ Задача» ведёт на создание задачи, клиент подставлен',
                 'клиент выбран в форме задачи' if selected else 'клиент не выбран')
+    card_task_ok = (f'/tasks/{task_id}' in card_html
+                    and 'fa-arrow-left' in card_html
+                    and 'fa-arrow-right' in card_html
+                    and f'/tasks/{task_id}/delete' in card_html
+                    and '<span class="badge text-bg-success">выполнена</span>'
+                    in card_html
+                    and 'table-hover' in card_html)
+    steps.check(card_task_ok,
+                'Задачи в карточке клиента оформлены как в реестре',
+                'в таблице задач есть цветной бейдж статуса, стрелки смены '
+                'статуса, кнопки редактирования и удаления, ссылка на задачу',
+                'оформление совпадает с реестром' if card_task_ok
+                else 'оформление отличается от реестра')
 
     # --- Шаг 9. Бейдж статуса и кнопка удаления всех задач ------------------
     registry = web.get('/tasks').get_data(as_text=True)
@@ -340,11 +514,16 @@ def run():
     emp_web = app.test_client()
     login(emp_web, EMAILS['emp1'])
     emp_html = emp_web.get('/tasks').get_data(as_text=True)
-    hidden_ok = 'title="Удалить все задачи"' not in emp_html
+    hidden_ok = ('title="Удалить все задачи"' not in emp_html
+                 and 'Только мои' not in emp_html
+                 and 'value="mine"' not in emp_html
+                 and 'name="assignee"' not in emp_html)
     steps.check(hidden_ok,
-                'Кнопка удаления всех задач скрыта от сотрудника',
-                'сотрудник не видит красную кнопку удаления всех задач',
-                'кнопка скрыта' if hidden_ok else 'кнопка видна сотруднику')
+                'Кнопка удаления всех задач и пункт «Только мои» скрыты от сотрудника',
+                'сотрудник не видит красную кнопку удаления и не может '
+                'выбрать «Только мои» в фильтре исполнителя',
+                'кнопка и пункт скрыты' if hidden_ok
+                else 'кнопка или пункт видны сотруднику')
     resp = web.post('/tasks/delete-all', follow_redirects=True)
     with app.app_context():
         left = Task.query.count()
@@ -355,7 +534,7 @@ def run():
                 'после нажатия кнопки в базе не остаётся задач',
                 f'HTTP {resp.status_code}, осталось задач: {left}')
 
-    conclusion = ('Задача создаётся, статусы изменяются, виджет «Мои задачи» '
-                  'обновляется.' if steps.passed
+    conclusion = ('Задача создаётся, статусы изменяются, сводка задач '
+                  'на панели управления обновляется.' if steps.passed
                   else 'Работа с задачами некорректна — см. шаги.')
     return steps, conclusion
