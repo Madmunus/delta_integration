@@ -46,6 +46,10 @@
           {{ form.responsible_id.label(class='form-label') }}
           {{ form.responsible_id(class='form-select', data_searchable='') }}
         </div>
+        <div class="col-md-6">
+          {{ form.priority.label(class='form-label') }}
+          {{ form.priority(class='form-select') }}
+        </div>
         <div class="col-12">
           {{ form.notes.label(class='form-label') }}
           {{ form.notes(class='form-control', rows=3) }}

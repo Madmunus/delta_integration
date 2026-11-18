@@ -124,9 +124,11 @@ class ProfileForm(AccountForm):
 
 
 class ClientForm(FlaskForm):
-    """Редактирование клиента: ответственный, заметки и реквизиты 1С."""
+    """Редактирование клиента: ответственный, приоритет, заметки и реквизиты 1С."""
     responsible_id = SelectField('Ответственный сотрудник', coerce=int,
                                  validators=[Optional()])
+    priority = SelectField('Приоритет сроков', coerce=int, choices=[
+        (1, 'Высокий'), (2, 'Средний'), (3, 'Низкий')])
     notes = TextAreaField('Заметки', validators=[Optional(), Length(max=5000)])
     # Подключение к «1С:Бухгалтерия» клиента (справочник Catalog_Договоры)
     odata_url = StringField('URL OData', validators=[
@@ -187,8 +189,22 @@ class ReportingDeadlineForm(FlaskForm):
         DataRequired(), NumberRange(min=0, max=6)], default=0)
     taxpayer_category = StringField('Категория налогоплательщика',
                                     validators=[Optional(), Length(max=50)])
+    priority = SelectField('Приоритет', coerce=int, choices=[
+        (1, 'Высокий'), (2, 'Средний'), (3, 'Низкий')])
     description = TextAreaField('Описание', validators=[Optional()])
     is_enabled = BooleanField('Включена')
+    submit = SubmitField('Сохранить')
+
+
+class DeadlineOverrideForm(FlaskForm):
+    """Ручная корректировка срока сдачи для клиента, формы и периода."""
+    client_id = SelectField('Клиент', coerce=int, validators=[DataRequired()])
+    deadline_id = SelectField('Вид отчётности', coerce=int,
+                              validators=[DataRequired()])
+    period = DateField('Отчётный период', validators=[DataRequired()])
+    due_date = DateField('Новый срок сдачи', validators=[DataRequired()])
+    note = StringField('Причина корректировки',
+                       validators=[Optional(), Length(max=255)])
     submit = SubmitField('Сохранить')
 
 

@@ -12,6 +12,11 @@
     DELTA_LOGIN_FAILURE_WINDOW — окно учёта неудач, сек (по умолчанию 900)
     DELTA_LOGIN_LOCKOUT — длительность блокировки входа, сек (по умолчанию 900)
     DELTA_HSTS — включить Strict-Transport-Security (0/1, по умолчанию 0)
+    DELTA_DEADLINE_INTERVAL — период проверки сроков, сек (по умолчанию 3600)
+    DELTA_DEADLINE_LEAD_DAYS — окно автогенерации задач, дней (по умолчанию 7)
+    DELTA_CALENDAR_SHIFT — перенос сроков: forward/backward/none (по умолчанию forward)
+    DELTA_CALENDAR_HOLIDAYS — дополнительные праздники YYYY-MM-DD через запятую
+    DELTA_NOTIFICATION_LEAD_DAYS — дни уведомлений, например 3,1 (по умолчанию 3,1)
 """
 import logging
 import os
@@ -49,6 +54,9 @@ def _ensure_schema_upgrades():
     upgrades = {
         'user_sessions': [('is_active_flag', 'BOOLEAN NOT NULL DEFAULT TRUE')],
         'user_actions': [('session_id', "VARCHAR(128) NOT NULL DEFAULT ''")],
+        'clients': [('priority', 'INTEGER NOT NULL DEFAULT 2')],
+        'reporting_deadlines': [('priority', 'INTEGER NOT NULL DEFAULT 2')],
+        'tasks': [('reporting_period', 'DATE')],
     }
     inspector = inspect(db.engine)
     tables = set(inspector.get_table_names())

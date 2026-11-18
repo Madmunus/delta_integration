@@ -35,6 +35,10 @@
           {{ form.taxpayer_category(class='form-control',
              placeholder='например: УСН, ОСНО') }}
         </div>
+        <div class="col-md-6">
+          {{ form.priority.label(class='form-label') }}
+          {{ form.priority(class='form-select') }}
+        </div>
         <div class="col-md-6 d-flex align-items-end">
           <div class="form-check">
             {{ form.is_enabled(class='form-check-input') }}

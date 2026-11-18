@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Уведомления о сроках{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Уведомления о сроках сдачи</h1>
+  <a class="btn btn-outline-secondary"
+     href="{{ url_for('deadlines.list_deadlines') }}">К срокам отчётности</a>
+</div>
+<p class="text-muted small">
+  Уведомления создаются автоматически за
+  {{ lead_days|join(', ') }} дн. до сдачи.
+  Непрочитано: {{ unread }}.
+</p>
+
+{% if unread %}
+<form method="post" class="mb-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="mark_all" value="1">
+  <button class="btn btn-sm btn-outline-primary">Отметить все как прочитанные</button>
+</form>
+{% endif %}
+
+<table class="table table-sm align-middle">
+  <thead class="table-light"><tr>
+    <th>Срок сдачи</th><th>За сколько дней</th><th>Форма / задача</th><th>Статус</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr class="{{ 'table-light text-muted' if item.is_read }}">
+      <td class="text-nowrap">{{ item.due_date|dt }}</td>
+      <td>{{ item.days_before }} дн.</td>
+      <td>
+        {% if item.deadline %}{{ item.deadline.name }}{% endif %}
+        {% if item.task %}<br><span class="small">{{ item.task.title }}</span>{% endif %}
+      </td>
+      <td>
+        {% if item.is_read %}прочитано{% else %}<span class="badge text-bg-primary">новое</span>{% endif %}
+      </td>
+      <td>
+        {% if not item.is_read %}
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="notification_id" value="{{ item.id }}">
+          <button class="btn btn-sm btn-outline-secondary">Прочитано</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">Уведомлений пока нет.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

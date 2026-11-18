@@ -217,6 +217,7 @@ def edit(client_id):
             or client.odata_username != new_username
             or bool(form.odata_password.data))
         client.responsible_id = form.responsible_id.data or None
+        client.priority = form.priority.data or 2
         client.notes = form.notes.data or ''
         client.odata_url = new_url
         client.odata_username = new_username

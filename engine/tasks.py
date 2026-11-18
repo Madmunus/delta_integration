@@ -1,16 +1,19 @@
-"""Планировщик задач: автогенерация задач по срокам сдачи отчётности.
+"""Планировщик задач: автогенерация задач и уведомлений по срокам отчётности.
 
 На основе справочника ReportingDeadline и календаря система формирует
 задачи для активных клиентов: за N дней до срока сдачи, с привязкой
 к клиенту и ответственному сотруднику. Повторные задачи для того же
-(клиент, форма, период) не создаются.
+(клиент, форма, период) не создаются. Отдельное задание готовит уведомления
+за настраиваемое число дней до сдачи.
 """
 import logging
 from datetime import date, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import and_, or_
 
-from engine.models import Client, ReportingDeadline, Task, db
+from engine.models import (Client, DeadlineNotification, DeadlineOverride,
+                           ReportingDeadline, Task, db)
 from engine.sync import sync_clients, sync_documents
 
 logger = logging.getLogger(__name__)
@@ -80,7 +83,7 @@ def next_due_date(deadline, today: date, months_back: int = 18,
     # Кандидат уже рассчитан на нужный месяц: достаточно пары шагов
     # вперёд, чтобы перейти через день сдачи внутри месяца.
     for _ in range(4):
-        due = deadline.due_date_for_period(period)
+        due = deadline.effective_due_date(period)
         if due >= today:
             return due
         year, month = _shift_month(period.year, period.month, step)
@@ -88,14 +91,17 @@ def next_due_date(deadline, today: date, months_back: int = 18,
     return None
 
 
-def generate_deadline_tasks(lead_days: int = 7) -> list:
+def generate_deadline_tasks(lead_days: int = 7,
+                            today: date | None = None) -> list:
     """Сформировать задачи по приближающимся срокам отчётности.
 
     Для каждого включённого вида отчётности и каждого активного клиента:
-    если срок сдачи попадает в окно [today; today + lead_days] и задача
-    ещё не создана — создаём. Возвращает список созданных задач.
+    если срок сдачи (с учётом календаря и ручной корректировки) попадает
+    в окно [today; today + lead_days] и задача ещё не создана — создаём.
+    Дедупликация идёт по отчётному периоду, поэтому ручная правка срока
+    у уже созданной задачи не приведёт к появлению дубля.
     """
-    today = date.today()
+    today = today or date.today()
     created = []
 
     deadlines = ReportingDeadline.query.filter_by(is_enabled=True).all()
@@ -103,21 +109,25 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
     periods = current_periods(today)
     deadline_ids = [deadline.id for deadline in deadlines]
     window_end = today + timedelta(days=lead_days)
-    # Одним запросом получаем все уже созданные комбинации: раньше каждая
-    # проверка дубликата делала отдельный SELECT (N+1). Задачи вне окна
-    # сдачи и без привязки к сроку отчётности в дедупликации не участвуют.
-    existing = set(Task.query.with_entities(
-        Task.client_id, Task.reporting_deadline_id, Task.due_date)
+    # Ручные корректировки загружаем одним запросом — без N+1 внутри цикла.
+    overrides = {(o.client_id, o.deadline_id, o.period): o.due_date
+                 for o in DeadlineOverride.query.all()}
+    # Одним запросом получаем все уже созданные комбинации. Для старых задач
+    # без reporting_period ключом остаётся их текущий due_date.
+    rows = (Task.query.with_entities(
+        Task.client_id, Task.reporting_deadline_id,
+        Task.reporting_period, Task.due_date)
         .filter(Task.reporting_deadline_id.in_(deadline_ids),
-                Task.due_date.isnot(None),
-                Task.due_date >= today,
-                Task.due_date <= window_end).all())
+                or_(Task.reporting_period.in_(periods),
+                    and_(Task.reporting_period.is_(None),
+                         Task.due_date.isnot(None),
+                         Task.due_date >= today,
+                         Task.due_date <= window_end))).all())
+    existing = {(cid, did, period or due) for cid, did, period, due in rows}
 
     for deadline in deadlines:
         for period in periods:
-            due = deadline.due_date_for_period(period)
-            if not (today <= due <= today + timedelta(days=lead_days)):
-                continue
+            base_due = deadline.effective_due_date(period)
             for client in clients:
                 # Правило системы: задача не может быть без исполнителя,
                 # поэтому клиента без ответственного пропускаем
@@ -126,11 +136,17 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
                                 'по форме %s не создана',
                                 client.name, deadline.name)
                     continue
-                # Дедупликация: та же форма + тот же срок + тот же клиент
-                key = (client.id, deadline.id, due)
+                due = overrides.get((client.id, deadline.id, period), base_due)
+                if not (today <= due <= window_end):
+                    continue
+                # Дедупликация: та же форма + тот же период + тот же клиент
+                key = (client.id, deadline.id, period)
                 if key in existing:
                     continue
                 existing.add(key)
+                priority = min(int(client.priority or 2),
+                               int(deadline.priority or 2))
+                priority = max(1, min(3, priority))
                 task = Task(
                     title=f'{deadline.name}: {client.name} (период {period.strftime("%m.%Y")})',
                     description=(
@@ -139,12 +155,15 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
                         f'Периодичность: {deadline.periodicity_label}\n'
                         f'Отчётный период: {period.strftime("%m.%Y")}\n'
                         f'Срок сдачи: {due.strftime("%d.%m.%Y")}\n'
-                        f'Категория налогоплательщика: {deadline.taxpayer_category}'
+                        f'Категория налогоплательщика: {deadline.taxpayer_category}\n'
+                        f'Приоритет: клиент — {client.priority_label}, '
+                        f'форма — {deadline.priority_label}'
                     ),
                     client_id=client.id,
                     assignee_id=client.responsible_id,
                     due_date=due,
-                    priority=1,
+                    reporting_period=period,
+                    priority=priority,
                     status=Task.STATUS_NEW,
                     reporting_deadline_id=deadline.id,
                 )
@@ -154,6 +173,64 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
         db.session.add_all(created)
         db.session.commit()
     logger.info('Автогенерация задач: создано %d задач', len(created))
+    return created
+
+
+def generate_deadline_notifications(lead_days=None,
+                                    today: date | None = None) -> list:
+    """Создать уведомления о сроках, наступающих через N дней.
+
+    Значения N берутся из ``NOTIFICATION_LEAD_DAYS`` (например, 3 и 1).
+    Уведомление адресуется исполнителю задачи и создаётся один раз для
+    комбинации «пользователь + задача + дней до сдачи».
+    """
+    if lead_days is None:
+        from flask import current_app, has_app_context
+        if has_app_context():
+            lead_days = current_app.config.get(
+                'NOTIFICATION_LEAD_DAYS', (3, 1))
+        else:
+            lead_days = (3, 1)
+    today = today or date.today()
+    targets = {}
+    for days in lead_days:
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            continue
+        if days >= 0:
+            targets[today + timedelta(days=days)] = days
+    if not targets:
+        return []
+
+    existing = set(DeadlineNotification.query.with_entities(
+        DeadlineNotification.user_id, DeadlineNotification.task_id,
+        DeadlineNotification.days_before).all())
+    # Уведомление создаём для любой невыполненной задачи со сроком сдачи,
+    # а не только для задач, сгенерированных из справочника сроков: срок
+    # может быть задан и вручную. Ссылка на форму в уведомлении необязательна.
+    tasks = (Task.query
+             .filter(Task.due_date.in_(list(targets)),
+                     Task.status != Task.STATUS_DONE).all())
+    created = []
+    for task in tasks:
+        days = targets[task.due_date]
+        key = (task.assignee_id, task.id, days)
+        if key in existing:
+            continue
+        existing.add(key)
+        created.append(DeadlineNotification(
+            user_id=task.assignee_id,
+            task_id=task.id,
+            reporting_deadline_id=task.reporting_deadline_id,
+            days_before=days,
+            due_date=task.due_date,
+        ))
+
+    if created:
+        db.session.add_all(created)
+        db.session.commit()
+    logger.info('Уведомлений о сроках создано: %d', len(created))
     return created
 
 
@@ -180,11 +257,20 @@ def init_scheduler(app):
     )
     scheduler.add_job(
         partial(_run_in_context, app, generate_deadline_tasks,
-               app.config['DEADLINE_LEAD_DAYS']),
+                app.config['DEADLINE_LEAD_DAYS']),
         'interval',
         seconds=app.config['DEADLINE_CHECK_INTERVAL'],
         id='generate_deadline_tasks',
         name='Формирование задач по срокам отчётности',
+        **job_options,
+    )
+    scheduler.add_job(
+        partial(_run_in_context, app, generate_deadline_notifications,
+                app.config['NOTIFICATION_LEAD_DAYS']),
+        'interval',
+        seconds=app.config['DEADLINE_CHECK_INTERVAL'],
+        id='generate_deadline_notifications',
+        name='Уведомления о сроках отчётности',
         **job_options,
     )
     scheduler.add_job(

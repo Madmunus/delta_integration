@@ -526,3 +526,16 @@ a.delta-report-card:hover {
 .delta-col-30 { width: 30%; }
 .delta-col-27 { width: 27%; }
 .delta-col-8 { width: 8%; }
+
+/* Календарь сдачи отчётности */
+.delta-calendar-due {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  white-space: nowrap;
+}
+.delta-calendar-edit {
+  color: #6c757d;
+  text-decoration: none;
+}
+.delta-calendar-edit:hover { color: #0d6efd; }

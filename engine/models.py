@@ -7,7 +7,11 @@ from flask_login import UserMixin
 from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from engine.calendar import adjust_due_date
+
 db = SQLAlchemy()
+
+PRIORITY_LABELS = {1: 'высокий', 2: 'средний', 3: 'низкий'}
 
 
 # ----------------------------------------------------------------------------
@@ -377,6 +381,8 @@ class Client(db.Model):
     kpp = db.Column(db.String(9))
     status = db.Column(db.String(20), nullable=False, default='active')  # active | archived
     responsible_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    # 1 — высокий, 2 — средний, 3 — низкий; влияет на приоритет задач
+    priority = db.Column(db.Integer, nullable=False, default=2)
     external_ref = db.Column(db.String(64), index=True)  # Ref_Key в Catalog_Организации
     # Подключение к «1С:Бухгалтерия» конкретного клиента (Catalog_Договоры)
     odata_url = db.Column(db.String(512), nullable=False, default='')
@@ -394,6 +400,10 @@ class Client(db.Model):
                             cascade='all, delete-orphan')
     documents = db.relationship('Document', back_populates='client', lazy='dynamic',
                                 cascade='all, delete-orphan')
+
+    @property
+    def priority_label(self) -> str:
+        return PRIORITY_LABELS.get(self.priority, 'средний')
 
     @property
     def is_active(self) -> bool:
@@ -628,6 +638,8 @@ class Task(db.Model):
         db.Index('ix_tasks_client_status_due', 'client_id', 'status', 'due_date'),
         db.Index('ix_tasks_assignee_status_due', 'assignee_id', 'status', 'due_date'),
         db.Index('ix_tasks_client_due', 'client_id', 'due_date'),
+        db.Index('ix_tasks_deadline_period', 'reporting_deadline_id',
+                 'reporting_period'),
     )
 
     STATUS_NEW = 'new'
@@ -660,6 +672,9 @@ class Task(db.Model):
     status = db.Column(db.String(20), nullable=False, default=STATUS_NEW, index=True)
     # Ссылка на справочник отчётности, если задача создана автоматически
     reporting_deadline_id = db.Column(db.Integer, db.ForeignKey('reporting_deadlines.id'))
+    # Отчётный период хранится отдельно от срока: пользователь может вручную
+    # скорректировать due_date, но повторная генерация не создаст дубль.
+    reporting_period = db.Column(db.Date)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
                           onupdate=datetime.utcnow)
@@ -765,6 +780,8 @@ class ReportingDeadline(db.Model):
     # Смещение периода: за сколько месяцев/периодов до срока заканчивается отчётный период
     period_offset = db.Column(db.Integer, nullable=False, default=0)
     taxpayer_category = db.Column(db.String(50), nullable=False, default='general')
+    # 1 — высокий, 2 — средний, 3 — низкий; влияет на приоритет задач
+    priority = db.Column(db.Integer, nullable=False, default=2)
     description = db.Column(db.Text, nullable=False, default='')
     is_enabled = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -778,6 +795,14 @@ class ReportingDeadline(db.Model):
         return {
             'monthly': 'ежемесячная', 'quarterly': 'ежеквартальная', 'annual': 'годовая',
         }.get(self.periodicity, self.periodicity)
+
+    @property
+    def priority_label(self) -> str:
+        return PRIORITY_LABELS.get(self.priority, 'средний')
+
+    def effective_due_date(self, period: date) -> date:
+        """Срок сдачи с учётом выходных, праздников и переносов."""
+        return adjust_due_date(self.due_date_for_period(period))
 
     def due_date_for_period(self, period: date) -> date:
         """Расчёт срока сдачи для отчётного периода (period — первый день периода)."""
@@ -804,4 +829,64 @@ class ReportingDeadline(db.Model):
 
     def __repr__(self):
         return f'<ReportingDeadline {self.code}>'
+
+
+# ----------------------------------------------------------------------------
+# Ручная корректировка сроков и уведомления (ФТ-6)
+# ----------------------------------------------------------------------------
+class DeadlineOverride(db.Model):
+    """Индивидуальный срок сдачи для пары «клиент + форма + период»."""
+
+    __tablename__ = 'deadline_overrides'
+    __table_args__ = (
+        db.UniqueConstraint('client_id', 'deadline_id', 'period',
+                            name='uq_deadline_override'),
+        db.Index('ix_deadline_override_deadline_period', 'deadline_id', 'period'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    deadline_id = db.Column(db.Integer, db.ForeignKey('reporting_deadlines.id'),
+                            nullable=False)
+    period = db.Column(db.Date, nullable=False)
+    due_date = db.Column(db.Date, nullable=False)
+    note = db.Column(db.String(255), nullable=False, default='')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    client = db.relationship('Client')
+    deadline = db.relationship('ReportingDeadline')
+
+    def __repr__(self):
+        return f'<DeadlineOverride {self.client_id} {self.deadline_id} {self.period}>'
+
+
+class DeadlineNotification(db.Model):
+    """Уведомление ответственному о приближающемся сроке сдачи."""
+
+    __tablename__ = 'deadline_notifications'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'task_id', 'days_before',
+                            name='uq_deadline_notification'),
+        db.Index('ix_deadline_notifications_user_read',
+                 'user_id', 'is_read', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=True)
+    reporting_deadline_id = db.Column(
+        db.Integer, db.ForeignKey('reporting_deadlines.id'), nullable=True)
+    days_before = db.Column(db.Integer, nullable=False)
+    due_date = db.Column(db.Date, nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False, default=False,
+                        server_default=db.false())
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    task = db.relationship('Task')
+    deadline = db.relationship('ReportingDeadline')
+
+    def __repr__(self):
+        return f'<DeadlineNotification {self.user_id} {self.due_date}>'
 

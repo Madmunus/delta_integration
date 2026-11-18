@@ -3,7 +3,12 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 mb-0">Сроки отчётности</h1>
-  <div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="{{ url_for('deadlines.calendar') }}">
+      <i class="fa-regular fa-calendar"></i> Календарь сдачи</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('deadlines.notifications') }}">
+      Уведомления{% if unread_notifications %}
+      <span class="badge text-bg-primary">{{ unread_notifications }}</span>{% endif %}</a>
     {% if current_user.is_admin %}
     <form class="d-inline" method="post" action="{{ url_for('deadlines.generate_tasks_now') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -25,7 +30,7 @@
 </p>
 <table class="table table-sm align-middle mb-4">
   <thead class="table-light"><tr>
-    <th>Форма</th><th>Периодичность</th><th>Категория</th>
+    <th>Форма</th><th>Периодичность</th><th>Категория</th><th>Приоритет</th>
     <th>Ближайший срок</th><th>Готовность</th>
   </tr></thead>
   <tbody>
@@ -34,6 +39,7 @@
       <td>{{ u.deadline.name }}</td>
       <td>{{ u.deadline.periodicity_label }}</td>
       <td>{{ u.deadline.taxpayer_category }}</td>
+      <td>{{ u.deadline.priority_label }}</td>
       <td class="text-nowrap fw-semibold">{{ u.due|dt }}</td>
       <td>
         {% set pct = (100 * u.clients_done / u.clients_total)|round if u.clients_total else 0 %}
@@ -54,7 +60,7 @@
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Код</th><th>Наименование</th><th>Периодичность</th>
-    <th>День сдачи</th><th>Смещение</th><th>Категория</th><th>Вкл.</th>
+    <th>День сдачи</th><th>Смещение</th><th>Категория</th><th>Приоритет</th><th>Вкл.</th>
     <th>Дата создания</th>
   </tr></thead>
   <tbody>
@@ -66,11 +72,12 @@
       <td>{{ d.due_day }}</td>
       <td>{{ d.period_offset }} мес.</td>
       <td>{{ d.taxpayer_category }}</td>
+      <td>{{ d.priority_label }}</td>
       <td>{{ 'да' if d.is_enabled else 'нет' }}</td>
       <td class="text-nowrap">{{ d.created_at|dtfull }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="text-muted">Справочник пуст — добавьте виды отчётности
+    <tr><td colspan="9" class="text-muted">Справочник пуст — добавьте виды отчётности
       или запустите наполнение демо-данными</td></tr>
   {% endfor %}
   </tbody>

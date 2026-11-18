@@ -8,8 +8,12 @@
 from datetime import date, timedelta
 import re
 
-from engine.models import Client, ReportingDeadline, Task, db
-from engine.tasks import next_due_date
+from engine.calendar import adjust_due_date
+from engine.models import (Client, DeadlineNotification, DeadlineOverride,
+                           ReportingDeadline, Task, db)
+from engine.tasks import (generate_deadline_notifications,
+                          generate_deadline_tasks, init_scheduler,
+                          next_due_date)
 from tests.base import (EMAILS, Steps, create_scenario_app, login,
                         seed_users)
 
@@ -192,6 +196,159 @@ def run():
                 'страница недоступна (HTTP 404), в разделе «Отчёты» её нет',
                 f'HTTP {resp.status_code}, ссылка в разделе отчётов: '
                 f'{"есть" if link_present else "нет"}')
+
+    # --- Шаг 9. Календарь переносит сроки с выходных и праздников -----------
+    saturday = date(2026, 11, 21)
+    holiday = date(2026, 1, 1)
+    calendar_ok = (
+        adjust_due_date(saturday, (), 'forward') == date(2026, 11, 23)
+        and adjust_due_date(saturday, (), 'backward') == date(2026, 11, 20)
+        and adjust_due_date(saturday, (), 'none') == saturday
+        and adjust_due_date(holiday, (), 'forward') == date(2026, 1, 9))
+    with app.app_context():
+        app.config['CALENDAR_SHIFT'] = 'forward'
+        shifted = ReportingDeadline(
+            periodicity='monthly', due_day=20, period_offset=0
+        ).effective_due_date(date(2026, 11, 1))
+        app.config['CALENDAR_SHIFT'] = 'none'
+    steps.check(calendar_ok and shifted == date(2026, 12, 21),
+                'Календарь учитывает выходные и праздники',
+                'суббота переносится на понедельник, 1 января — на 9-е; '
+                'месячная форма со сроком 20.12 переходит на 21.12',
+                f'суббота → {adjust_due_date(saturday, (), "forward")}, '
+                f'праздник → {adjust_due_date(holiday, (), "forward")}, '
+                f'форма → {shifted}')
+
+    # --- Шаг 10. Приоритет клиента и формы влияет на задачу -----------------
+    fixed_today = date(2026, 11, 18)
+    with app.app_context():
+        high_client = Client(
+            name='ООО «Приоритетный-Тест»', inn='7705555504', status='active',
+            responsible_id=users['emp1'], priority=1)
+        low_form = ReportingDeadline(
+            name='Форма низкого приоритета', code='low-prio-sc4',
+            periodicity='monthly', due_day=20, period_offset=0,
+            priority=3, is_enabled=True)
+        db.session.add_all([high_client, low_form])
+        db.session.commit()
+        high_id, low_form_id = high_client.id, low_form.id
+        created = generate_deadline_tasks(7, today=fixed_today)
+        priority_task = next(
+            (t for t in created
+             if t.client_id == high_id and t.reporting_deadline_id == low_form_id),
+            None)
+    priority_ok = (priority_task is not None
+                   and priority_task.priority == 1
+                   and 'клиент — высокий, форма — низкий'
+                   in priority_task.description)
+    steps.check(priority_ok,
+                'Приоритет задачи определяется клиентом и формой',
+                'у клиента с высоким приоритетом и формы с низким '
+                'приоритетом создаётся задача высокого приоритета',
+                f'приоритет: {priority_task.priority if priority_task else "нет задачи"}')
+
+    # --- Шаг 11. Ручная правка срока не создаёт дубли -----------------------
+    first_deadline_id = next(iter(by_deadline))
+    with app.app_context():
+        editable = Task.query.filter_by(
+            client_id=active_client.id,
+            reporting_deadline_id=first_deadline_id).first()
+        editable.due_date = editable.due_date + timedelta(days=1)
+        db.session.commit()
+        total_before = Task.query.count()
+        generate_deadline_tasks(7)
+        total_after = Task.query.count()
+    steps.check(total_after == total_before,
+                'Ручная корректировка срока не ломает дедупликацию',
+                'после изменения срока у существующей задачи повторная '
+                'генерация не создаёт дубль',
+                f'задач до: {total_before}, после: {total_after}')
+
+    # --- Шаг 12. Корректировка меняет срок в автогенерации ------------------
+    with app.app_context():
+        override_form = ReportingDeadline(
+            name='Форма с ручным сроком', code='override-sc4',
+            periodicity='monthly', due_day=1, period_offset=0,
+            is_enabled=True)
+        db.session.add(override_form)
+        db.session.commit()
+        db.session.add(DeadlineOverride(
+            client_id=active_client.id, deadline_id=override_form.id,
+            period=date(2026, 10, 1), due_date=date(2026, 11, 24),
+            note='тестовая корректировка'))
+        db.session.commit()
+        created = generate_deadline_tasks(7, today=fixed_today)
+        overridden_task = next(
+            (t for t in created
+             if t.client_id == active_client.id
+             and t.reporting_deadline_id == override_form.id), None)
+    steps.check(overridden_task is not None
+                and overridden_task.due_date == date(2026, 11, 24),
+                'Ручная корректировка срока попадает в задачу',
+                'форма со сроком 01.11 переходит в окно генерации '
+                'скорректированной датой 24.11',
+                f'срок задачи: '
+                f'{overridden_task.due_date if overridden_task else "нет задачи"}')
+
+    # --- Шаг 13. Календарь сдачи на месяц и квартал -------------------------
+    month_page = web.get('/deadlines/calendar', query_string={
+        'view': 'month', 'year': 2026, 'month': 11})
+    month_html = month_page.get_data(as_text=True)
+    quarter_html = web.get('/deadlines/calendar', query_string={
+        'view': 'quarter', 'year': 2026, 'month': 11}).get_data(as_text=True)
+    steps.check(month_page.status_code == 200
+                and 'Календарь сдачи отчётности' in month_html
+                and 'СЗВ-М (сценарий 4)' in month_html
+                and 'Квартал' in quarter_html,
+                'Календарь сдачи доступен в режиме месяца и квартала',
+                'страница открывается и показывает формы клиента '
+                'в выбранном периоде',
+                f'месяц: HTTP {month_page.status_code}, '
+                f'квартал: {"есть" if "Квартал" in quarter_html else "нет"}')
+
+    # --- Шаг 14. Уведомления за N дней до сдачи -----------------------------
+    with app.app_context():
+        soon = Task(title='Уведомление: тестовая задача',
+                    assignee_id=users['emp1'], client_id=active_client.id,
+                    status=Task.STATUS_NEW,
+                    due_date=date.today() + timedelta(days=3))
+        db.session.add(soon)
+        db.session.commit()
+        soon_id = soon.id
+        first_batch = generate_deadline_notifications(
+            lead_days=(3, 1), today=date.today())
+        repeat_batch = generate_deadline_notifications(
+            lead_days=(3, 1), today=date.today())
+        has_ours = any(n.task_id == soon_id and n.days_before == 3
+                       for n in first_batch)
+    emp_web = app.test_client()
+    login(emp_web, EMAILS['emp1'])
+    notifications_html = emp_web.get('/deadlines/notifications').get_data(
+        as_text=True)
+    marked = emp_web.post('/deadlines/notifications',
+                          data={'mark_all': '1'},
+                          follow_redirects=True)
+    with app.app_context():
+        unread_after = DeadlineNotification.query.filter_by(
+            user_id=users['emp1'], is_read=False).count()
+    steps.check(has_ours and not repeat_batch
+                and 'Уведомление: тестовая задача' in notifications_html
+                and 'Отмечено прочитанными' in marked.get_data(as_text=True)
+                and unread_after == 0,
+                'Уведомления создаются за N дней и отмечаются прочитанными',
+                'уведомление за 3 дня создано один раз, отображается '
+                'исполнителю и сбрасывается кнопкой «Отметить все»',
+                f'создано: {len(first_batch)}, повтор: {len(repeat_batch)}, '
+                f'непрочитано после: {unread_after}')
+
+    # --- Шаг 15. Задание уведомлений зарегистрировано в планировщике --------
+    scheduler = init_scheduler(app)
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    scheduler.shutdown(wait=False)
+    steps.check('generate_deadline_notifications' in job_ids,
+                'Уведомления подключены к планировщику',
+                'в планировщике есть задание generate_deadline_notifications',
+                f'задания: {sorted(job_ids)}')
 
     conclusion = ('Задачи формируются по справочнику сроков, сроки '
                   'рассчитываются корректно.'

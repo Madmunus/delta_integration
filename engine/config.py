@@ -1,9 +1,38 @@
 """Конфигурация системы «Дельта»."""
 import os
 import tempfile
+from datetime import date
 
 # Корень проекта — родительская папка для engine/
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+
+def _csv_ints(raw: str, default: tuple) -> tuple:
+    """Разобрать список целых из строки вида «3,1»; пустое — default."""
+    values = set()
+    for chunk in (raw or '').split(','):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            values.add(int(chunk))
+        except ValueError:
+            continue
+    return tuple(sorted(values)) or default
+
+
+def _csv_dates(raw: str) -> tuple:
+    """Разобрать список дат ISO (YYYY-MM-DD) из строки окружения."""
+    values = []
+    for chunk in (raw or '').split(','):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            values.append(date.fromisoformat(chunk))
+        except ValueError:
+            continue
+    return tuple(values)
 
 
 class Config:
@@ -71,6 +100,16 @@ class Config:
     DEADLINE_CHECK_INTERVAL = int(os.environ.get('DELTA_DEADLINE_INTERVAL', '3600'))
     # За сколько дней до срока создавать задачу
     DEADLINE_LEAD_DAYS = int(os.environ.get('DELTA_DEADLINE_LEAD_DAYS', '7'))
+    # Календарь сдачи: перенос с выходных/праздников и дополнительные даты.
+    CALENDAR_SHIFT = os.environ.get(
+        'DELTA_CALENDAR_SHIFT', 'forward').strip().lower()
+    if CALENDAR_SHIFT not in ('forward', 'backward', 'none'):
+        CALENDAR_SHIFT = 'forward'
+    CALENDAR_HOLIDAYS = _csv_dates(
+        os.environ.get('DELTA_CALENDAR_HOLIDAYS', ''))
+    # За сколько дней до сдачи создавать уведомления (например, «3,1»).
+    NOTIFICATION_LEAD_DAYS = _csv_ints(
+        os.environ.get('DELTA_NOTIFICATION_LEAD_DAYS', '3,1'), (3, 1))
     # Допуск опоздания заданий планировщика, сек
     SCHEDULER_MISFIRE_GRACE_SECONDS = int(
         os.environ.get('DELTA_MISFIRE_GRACE', '300'))
@@ -140,6 +179,11 @@ class TestingConfig(Config):
     WTF_CSRF_ENABLED = False
     SECRET_KEY = 'testing-secret'
     DEADLINE_LEAD_DAYS = 7
+    # В тестах арифметический расчёт остаётся проверяемым напрямую:
+    # переносы включаются явными аргументами в новых шагах сценария.
+    CALENDAR_SHIFT = 'none'
+    CALENDAR_HOLIDAYS = ()
+    NOTIFICATION_LEAD_DAYS = (3, 1)
 
 
 config = {
