@@ -37,9 +37,9 @@
       <td class="text-nowrap fw-semibold">{{ u.due|dt }}</td>
       <td>
         {% set pct = (100 * u.clients_done / u.clients_total)|round if u.clients_total else 0 %}
-        <div class="progress" style="min-width: 120px;" title="{{ u.clients_done }} из {{ u.clients_total }}">
+        <div class="progress delta-min-120" title="{{ u.clients_done }} из {{ u.clients_total }}">
           <div class="progress-bar {{ 'bg-success' if pct == 100 else 'bg-warning' if u.overdue else 'bg-primary' }}"
-               style="width: {{ pct }}%">{{ pct|int }}%</div>
+               data-bar-width="{{ pct }}">{{ pct|int }}%</div>
         </div>
       </td>
     </tr>

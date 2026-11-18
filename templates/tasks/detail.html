@@ -13,7 +13,7 @@
   </div>
 </div>
 
-<div class="card" style="max-width: 760px;">
+<div class="card delta-narrow">
   <div class="card-body">
     <h2 class="h6 mb-3">Данные</h2>
     <dl class="row mb-0">
@@ -50,7 +50,7 @@
       <dt class="col-sm-4">Статус</dt>
       <dd class="col-sm-8">{{ task_status_badge(task) }}</dd>
       <dt class="col-sm-4">Описание</dt>
-      <dd class="col-sm-8" style="white-space: pre-wrap;">{{ task.description or '—' }}</dd>
+      <dd class="col-sm-8 delta-prewrap">{{ task.description or '—' }}</dd>
     </dl>
   </div>
 </div>

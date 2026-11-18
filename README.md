@@ -78,6 +78,8 @@ gunicorn -w 4 -b 0.0.0.0:8000 "app:app"
 | `DELTA_LOGIN_FAILURE_THRESHOLD` | число неудачных входов до блокировки | `5` |
 | `DELTA_LOGIN_FAILURE_WINDOW` | окно учёта неудачных входов, сек | `900` |
 | `DELTA_LOGIN_LOCKOUT` | длительность блокировки входа, сек | `900` |
+| `DELTA_HSTS` | включить `Strict-Transport-Security` (только для HTTPS) | `0` |
+| `DELTA_HSTS_MAX_AGE` | `max-age` для HSTS, сек | `31536000` |
 | `DEADLINE_LEAD_DAYS` (DELTA_DEADLINE_LEAD_DAYS) | за сколько дней до срока создавать задачи | `7` |
 
 ## Тестовые данные
@@ -690,6 +692,18 @@ python -m mypy app.py engine routes tests seed.py
   содержать частей логина и транслитерации ФИО. Пароль вводится дважды
   и проверяется на совпадение.
 - Все формы защищены CSRF-токенами (Flask-WTF).
+- Все ответы (HTML, статика, JSON и страницы ошибок) получают заголовки
+  `Content-Security-Policy`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` и
+  `Permissions-Policy`. HSTS добавляется только при `DELTA_HSTS=1`
+  с `max-age` из `DELTA_HSTS_MAX_AGE`; на HTTP браузер его игнорирует.
+- CSP жёсткий: `default-src 'none'`, `script-src 'self'`,
+  `style-src 'self'`, `font-src 'self'`, `connect-src 'self'`,
+  `form-action 'self'`, `img-src 'self' data:` (SVG-иконки Bootstrap
+  встроены в CSS), `base-uri 'none'`, `object-src 'none'`,
+  `frame-ancestors 'none'`. `'unsafe-inline'` и `'unsafe-eval'` запрещены:
+  обработчики вынесены в `static/js/ui-actions.js`, а геометрия графиков
+  задаётся атрибутами `data-bar-height` и `data-bar-width` через CSSOM.
 - `/login` блокируется после `DELTA_LOGIN_FAILURE_THRESHOLD` неудач в окне
   `DELTA_LOGIN_FAILURE_WINDOW` на `DELTA_LOGIN_LOCKOUT` секунд. Ключ — IP
   и нормализованный email; состояние лежит в таблице `login_attempts`,

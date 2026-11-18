@@ -49,8 +49,8 @@
       <td class="text-end"><a href="{{ registry_link('clients.list_clients', date_range, responsible=uid, status='active') }}">{{ act or 0 }}</a></td>
       <td>
         {% set pct = (100 * (act or 0) / cnt)|round if cnt else 0 %}
-        <div class="progress" style="min-width: 120px;">
-          <div class="progress-bar bg-success" style="width: {{ pct }}%">{{ pct|int }}%</div>
+        <div class="progress delta-min-120">
+          <div class="progress-bar bg-success" data-bar-width="{{ pct }}">{{ pct|int }}%</div>
         </div>
       </td>
       <td class="text-end">

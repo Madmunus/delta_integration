@@ -341,7 +341,9 @@
   initRangeInputs();
   initPresets();
 
-  window.deltaClearRange = function (btn) {
+  // Очистка диапазона вызывается делегированным обработчиком: инлайн
+  // onclick запрещён жёстким CSP. Глобал оставлен для совместимости.
+  function clearRange(btn) {
     var group = btn.closest('.input-group');
     var input = group.querySelector('input[name="date_range"]');
     input.value = '';
@@ -362,5 +364,14 @@
     // Возврат фокуса после очистки не должен снова открывать календарь.
     input._deltaNoOpen = true;
     input.focus();
-  };
+  }
+
+  document.addEventListener('click', function (ev) {
+    if (ev.target && ev.target.closest) {
+      var btn = ev.target.closest('[data-clear-range]');
+      if (btn) clearRange(btn);
+    }
+  });
+
+  window.deltaClearRange = clearRange;
 })();

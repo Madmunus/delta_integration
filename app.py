@@ -11,6 +11,7 @@
     DELTA_LOGIN_FAILURE_THRESHOLD — неудачных входов до блокировки (по умолчанию 5)
     DELTA_LOGIN_FAILURE_WINDOW — окно учёта неудач, сек (по умолчанию 900)
     DELTA_LOGIN_LOCKOUT — длительность блокировки входа, сек (по умолчанию 900)
+    DELTA_HSTS — включить Strict-Transport-Security (0/1, по умолчанию 0)
 """
 import logging
 import os
@@ -31,6 +32,7 @@ from engine.models import (Client, OneCSetting, User,
 from engine.secret_storage import (SecretDecryptionError, encrypt_secret,
                                    is_encrypted, needs_rotation,
                                    reencrypt_secret)
+from engine.security_headers import init_app as init_security_headers
 from engine.user_sessions import enforce_session, terminate_current_session
 
 logging.basicConfig(level=logging.INFO,
@@ -133,6 +135,7 @@ def create_app(config_name=None):
     # --- Расширения ---
     db.init_app(app)
     CSRFProtect(app)  # глобальная защита POST + csrf_token() в шаблонах
+    init_security_headers(app)  # CSP и заголовки для всех ответов, включая ошибки
 
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'

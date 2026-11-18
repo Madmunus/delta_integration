@@ -14,7 +14,7 @@
 </div>
 
 {% if task.id %}
-<div class="card mb-3" style="max-width: 760px;">
+<div class="card mb-3 delta-narrow">
   <div class="card-body">
     <h2 class="h6 mb-3">Данные</h2>
     <dl class="row mb-0">
@@ -34,7 +34,7 @@
 </div>
 {% endif %}
 
-<div class="card" style="max-width: 760px;">
+<div class="card delta-narrow">
   <div class="card-body">
     <form method="post" novalidate>
       {{ form.hidden_tag() }}

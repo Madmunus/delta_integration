@@ -25,7 +25,7 @@
   <dt class="col-sm-4">Статус</dt>
   <dd class="col-sm-8">{{ contract_status_badge(contract) }}</dd>
   <dt class="col-sm-4">Описание</dt>
-  <dd class="col-sm-8" style="white-space: pre-wrap;">{{ contract.description or '—' }}</dd>
+  <dd class="col-sm-8 delta-prewrap">{{ contract.description or '—' }}</dd>
   <dt class="col-sm-4">Дата создания</dt>
   <dd class="col-sm-8">{{ contract.created_at|dtfull }}</dd>
   <dt class="col-sm-4">Дата обновления</dt>
@@ -37,6 +37,6 @@
       {{ contract.processed_label }}</span>
   </dd>
   <dt class="col-sm-4">Заметки</dt>
-  <dd class="col-sm-8" style="white-space: pre-wrap;">{{ contract.notes or '—' }}</dd>
+  <dd class="col-sm-8 delta-prewrap">{{ contract.notes or '—' }}</dd>
   {% endif %}
 </dl>

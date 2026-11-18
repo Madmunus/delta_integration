@@ -516,3 +516,13 @@ a.delta-report-card:hover {
   color: #6c757d;
   white-space: nowrap;
 }
+
+/* Вспомогательные классы вместо инлайн-стилей: CSP без 'unsafe-inline'. */
+.delta-narrow { max-width: 760px; }
+.delta-narrow-sm { max-width: 720px; }
+.delta-prewrap { white-space: pre-wrap; }
+.delta-min-120 { min-width: 120px; }
+.delta-sessions-offset { margin-top: 2.4rem !important; }
+.delta-col-30 { width: 30%; }
+.delta-col-27 { width: 27%; }
+.delta-col-8 { width: 8%; }

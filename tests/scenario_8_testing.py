@@ -2,8 +2,10 @@
 
 Проверяется, что страница запускает сценарий AJAX-запросом и получает
 JSON-сводку, а результат каждого шага — отдельным запросом. Дополнительно
-проверяются обычный POST без JavaScript и запрет для сотрудника.
+проверяются обычный POST без JavaScript, запрет для сотрудника и
+security-заголовки с жёстким CSP.
 """
+import re
 from pathlib import Path
 
 from tests.base import EMAILS, Steps, create_scenario_app, login, seed_users
@@ -12,8 +14,9 @@ FT = 'Интерфейс'
 TITLE = 'AJAX-выполнение сценариев с пошаговым выводом результатов'
 DESCRIPTION = ('Сценарий запускается AJAX-запросом и возвращает JSON-сводку; '
                'результат каждого шага запрашивается отдельно. Проверяются '
-               'также обычный POST без JavaScript, запрет для сотрудника '
-               'и элементы интерфейса без внешних библиотек.')
+               'обычный POST без JavaScript, запрет для сотрудника, '
+               'элементы интерфейса без внешних библиотек, заголовки '
+               'безопасности и CSP без инлайн-кода.')
 
 AJAX = {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
 
@@ -189,8 +192,136 @@ def run():
                 'пагинация и сортировка не сохраняются',
                 'скрипт подключён' if ok else 'часть файлов устарела')
 
+    # --- Шаг 11. Заголовки безопасности на всех типах ответов ---------------
+    csp = page.headers.get('Content-Security-Policy', '')
+    expected_headers = {
+        'Content-Security-Policy': csp,
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+        'Permissions-Policy': (
+            'camera=(), microphone=(), geolocation=(), payment=()'),
+    }
+    responses = {
+        'HTML': boss.get('/testing'),
+        'JS': boss.get('/static/js/ui-actions.js'),
+        'JSON': boss.get('/testing/run/scenario_1/step?index=0',
+                         headers=AJAX),
+        '404': boss.get('/no-such-page'),
+    }
+    missing_headers = []
+    for label, response in responses.items():
+        for name, value in expected_headers.items():
+            if response.headers.get(name) != value:
+                missing_headers.append(f'{label}:{name}')
+    statuses_ok = (responses['HTML'].status_code == 200
+                   and responses['JS'].status_code == 200
+                   and responses['JSON'].status_code == 200
+                   and responses['404'].status_code == 404)
+    actual = ', '.join(
+        f'{label} {response.status_code}'
+        for label, response in responses.items())
+    if missing_headers:
+        actual += '; нет заголовков: ' + ', '.join(missing_headers)
+    steps.check(statuses_ok and not missing_headers,
+                'Security-заголовки есть на HTML, статике, JSON и 404',
+                'одинаковый набор заголовков во всех ответах, включая ошибки',
+                actual)
+
+    # --- Шаг 12. CSP не допускает инлайн-кода и внешних источников ---------
+    directives = {}
+    for part in csp.split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        pieces = part.split(None, 1)
+        directives[pieces[0]] = pieces[1] if len(pieces) == 2 else ''
+    expected_csp = {
+        'default-src': "'none'",
+        'script-src': "'self'",
+        'style-src': "'self'",
+        'font-src': "'self'",
+        'img-src': "'self' data:",
+        'connect-src': "'self'",
+        'form-action': "'self'",
+        'base-uri': "'none'",
+        'object-src': "'none'",
+        'frame-ancestors': "'none'",
+    }
+    sources = set()
+    for value in directives.values():
+        sources.update(value.split())
+    csp_ok = (
+        all(directives.get(name) == value
+            for name, value in expected_csp.items())
+        and sources <= {"'none'", "'self'", 'data:'}
+        and "'unsafe-inline'" not in csp
+        and "'unsafe-eval'" not in csp
+    )
+    steps.check(csp_ok, 'CSP жёсткий и не содержит исключений',
+                'только same-origin и data: для SVG в CSS Bootstrap, '
+                "без 'unsafe-inline' и 'unsafe-eval'",
+                csp if csp else 'заголовок отсутствует')
+
+    # --- Шаг 13. HSTS управляется конфигурацией ----------------------------
+    hsts_app = create_scenario_app()
+    hsts_client = hsts_app.test_client()
+    hsts_app.config.update(SECURITY_HSTS_ENABLED=False,
+                           SECURITY_HSTS_MAX_AGE=600)
+    hsts_off = hsts_client.get('/login')
+    hsts_app.config['SECURITY_HSTS_ENABLED'] = True
+    hsts_on = hsts_client.get('/login')
+    hsts_ok = (
+        'Strict-Transport-Security' not in hsts_off.headers
+        and hsts_on.headers.get('Strict-Transport-Security')
+        == 'max-age=600; includeSubDomains'
+    )
+    hsts_off_value = ('есть' if 'Strict-Transport-Security' in hsts_off.headers
+                      else 'нет')
+    hsts_on_value = hsts_on.headers.get('Strict-Transport-Security')
+    steps.check(hsts_ok, 'HSTS включается через конфигурацию',
+                'выключен по умолчанию, а при включении содержит '
+                'max-age и includeSubDomains',
+                f'выключен: {hsts_off_value}; включён: {hsts_on_value}')
+
+    # --- Шаг 14. Шаблоны не содержат инлайн-JS и инлайн-стилей -------------
+    inline_event = re.compile(r'\son[a-z]+\s*=', re.IGNORECASE)
+    inline_style = re.compile(r"\sstyle\s*=\s*['\"]", re.IGNORECASE)
+    violations = []
+    for template in templates_root.rglob('*.html'):
+        text = template.read_text(encoding='utf-8')
+        if inline_event.search(text) or inline_style.search(text):
+            violations.append(str(template.relative_to(templates_root)))
+    steps.check(not violations, 'В шаблонах нет onclick, onsubmit и style=',
+                'все обработчики и стили вынесены во внешние JS/CSS',
+                'нарушений нет' if not violations
+                else 'нарушения: ' + ', '.join(violations))
+
+    # --- Шаг 15. Динамическая геометрия применяется внешним JS -------------
+    ui_text = (static_root / 'js/ui-actions.js').read_text(encoding='utf-8')
+    charts_text = (templates_root / 'reports/_charts.html').read_text(
+        encoding='utf-8')
+    report_text = (templates_root / 'reports/clients.html').read_text(
+        encoding='utf-8')
+    deadline_text = (templates_root / 'deadlines/list.html').read_text(
+        encoding='utf-8')
+    geometry_ok = (
+        '/static/js/ui-actions.js' in html
+        and 'data-bar-height' in charts_text
+        and 'data-bar-width' in report_text
+        and 'data-bar-width' in deadline_text
+        and '[data-bar-height]' in ui_text
+        and '[data-bar-width]' in ui_text
+    )
+    steps.check(geometry_ok, 'Геометрия графиков задаётся внешним скриптом',
+                'data-bar-height/data-bar-width в шаблонах и обработчик '
+                'в ui-actions.js вместо инлайн-стилей',
+                'все файлы согласованы' if geometry_ok
+                else 'часть файлов устарела')
+
     conclusion = ('AJAX-запуск сценариев, пошаговый вывод результатов, '
-                  'поисковый select, календарь дат и сохранённые фильтры '
-                  'без внешних библиотек работают.' if steps.passed
+                  'поисковый select, календарь дат, сохранённые фильтры, '
+                  'security-заголовки и жёсткий CSP работают без внешних '
+                  'библиотек.' if steps.passed
                   else 'Интерфейс сценариев нарушен — см. шаги.')
     return steps, conclusion

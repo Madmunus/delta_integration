@@ -71,7 +71,7 @@
         <span class="badge text-bg-info">{{ client.responsible.fio if client.responsible else 'не назначен' }}</span>
       </dd>
       <dt class="col-sm-3">Заметки</dt>
-      <dd class="col-sm-9" style="white-space: pre-wrap;">{{ client.notes or '—' }}</dd>
+      <dd class="col-sm-9 delta-prewrap">{{ client.notes or '—' }}</dd>
       <dt class="col-sm-3">URL OData (1С:Бухгалтерия)</dt>
       <dd class="col-sm-9">{{ client.odata_url or 'не настроено' }}</dd>
       <dt class="col-sm-3">Пользователь</dt>
@@ -179,7 +179,7 @@
                aria-label="Редактировать задачу"><i class="fa-solid fa-pencil"></i></a>
             <form class="d-inline" method="post"
                   action="{{ url_for('tasks.delete_task', task_id=t.id) }}"
-                  onsubmit="return confirm('Удалить задачу?')">
+                  data-confirm="Удалить задачу?">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fa-solid fa-xmark"></i></button>
             </form>

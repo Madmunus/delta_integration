@@ -30,7 +30,7 @@
                title="Поиск по названию, описанию, клиенту, исполнителю и статусу">
         <button class="btn btn-outline-secondary px-2" type="button"
                 title="Очистить поиск" aria-label="Очистить поиск"
-                onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
+                data-search-clear><i class="fa-solid fa-xmark"></i></button>
       </div>
     </div>
     <div class="col-6 col-md-2 col-lg-2">
@@ -87,7 +87,7 @@
               formmethod="post"
               name="csrf_token" value="{{ csrf_token() }}"
               title="Удалить все задачи" aria-label="Удалить все задачи"
-              onclick="return confirm('Удалить все задачи? Действие необратимо.')"><i class="fa-solid fa-xmark"></i></button>
+              data-confirm="Удалить все задачи? Действие необратимо."><i class="fa-solid fa-xmark"></i></button>
       {% endif %}
     </div>
   </div>
@@ -154,7 +154,7 @@
            aria-label="Редактировать задачу"><i class="fa-solid fa-pencil"></i></a>
         <form class="d-inline" method="post"
               action="{{ url_for('tasks.delete_task', task_id=t.id) }}"
-              onsubmit="return confirm('Удалить задачу?')">
+              data-confirm="Удалить задачу?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fa-solid fa-xmark"></i></button>
         </form>

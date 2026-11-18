@@ -23,10 +23,10 @@
           </div>
           <div class="delta-chart-bars">
             <div class="delta-chart-bar delta-chart-bar-current"
-                 style="height: {{ current_pct }}%"></div>
+                 data-bar-height="{{ current_pct }}"></div>
             {% if item.previous is not none %}
             <div class="delta-chart-bar delta-chart-bar-previous"
-                 style="height: {{ previous_pct }}%"></div>
+                 data-bar-height="{{ previous_pct }}"></div>
             {% endif %}
           </div>
           <div class="delta-chart-label">{{ item.label }}</div>

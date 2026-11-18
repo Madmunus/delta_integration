@@ -5,7 +5,7 @@
 {% if deadline.id %}
 <p class="text-muted small">Создан: {{ deadline.created_at|dtfull }}</p>
 {% endif %}
-<div class="card" style="max-width: 720px;">
+<div class="card delta-narrow-sm">
   <div class="card-body">
     <form method="post" novalidate>
       {{ form.hidden_tag() }}

@@ -88,6 +88,25 @@ class Config:
     LOGIN_LOCKOUT_SECONDS = int(
         os.environ.get('DELTA_LOGIN_LOCKOUT', '900'))
 
+    # Заголовки ответов. Все ресурсы приложения same-origin; data: нужен
+    # только для SVG-иконок, встроенных в CSS Bootstrap.
+    SECURITY_CSP = (
+        "default-src 'none'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "font-src 'self'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "form-action 'self'; "
+        "base-uri 'none'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'"
+    )
+    SECURITY_HSTS_ENABLED = os.environ.get(
+        'DELTA_HSTS', '0').lower() in ('1', 'true', 'yes', 'on')
+    SECURITY_HSTS_MAX_AGE = int(
+        os.environ.get('DELTA_HSTS_MAX_AGE', '31536000'))
+
     # Общее хранилище заданий сценарного тестирования: разделяется между
     # воркерами gunicorn. В тестовом режиме используется память процесса.
     TEST_JOB_DIR = os.environ.get(
