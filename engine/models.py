@@ -129,6 +129,38 @@ class ODataCircuitState(db.Model):
         return f'<ODataCircuitState client={self.client_id}>'
 
 
+class LoginAttempt(db.Model):
+    """Счётчик неудачных входов и временная блокировка для пары IP + email.
+
+    Отдельная таблица (а не память процесса) нужна, чтобы лимит работал
+    одинаково во всех воркерах gunicorn и сохранялся после рестарта.
+    """
+
+    __tablename__ = 'login_attempts'
+
+    scope = db.Column(db.String(512), primary_key=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    first_failed_at = db.Column(db.DateTime, nullable=False,
+                                default=datetime.utcnow)
+    last_failed_at = db.Column(db.DateTime, nullable=False,
+                               default=datetime.utcnow)
+    blocked_until = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False,
+                           default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    @classmethod
+    def get_or_create(cls, scope: str):
+        state = db.session.get(cls, scope)
+        if state is None:
+            state = cls(scope=scope)
+            db.session.add(state)
+        return state
+
+    def __repr__(self):
+        return f'<LoginAttempt {self.scope}>'
+
+
 # ----------------------------------------------------------------------------
 # Пользователь (ФТ-1: ролевая модель admin / employee)
 # ----------------------------------------------------------------------------

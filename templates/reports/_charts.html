@@ -1,0 +1,50 @@
+{#- Простые столбчатые графики без внешних JS-библиотек. -#}
+{% macro value(chart, number) -%}
+  {%- if chart.money -%}{{ number|money }}{%- else -%}{{ number }}{%- endif -%}
+{%- endmacro %}
+
+{% macro bars(chart, title) %}
+<div class="col-12 col-lg-6">
+  <div class="card h-100">
+    <div class="card-header py-2 small fw-semibold">{{ title }}</div>
+    <div class="card-body">
+      {% if chart and chart['items'] %}
+      <div class="delta-chart" role="img" aria-label="{{ title }}">
+        {% for item in chart['items'] %}
+        {% set current_pct = (100 * item.current / chart.max)|round|int %}
+        {% set previous_pct = (100 * item.previous / chart.max)|round|int if item.previous is not none else 0 %}
+        <div class="delta-chart-col"
+             title="{{ item.label }}: текущий {{ value(chart, item.current) }}{% if item.previous is not none %}, предыдущий {{ value(chart, item.previous) }}{% endif %}">
+          <div class="delta-chart-values">
+            <span class="delta-chart-value delta-chart-value-current">{{ value(chart, item.current) }}</span>
+            {% if item.previous is not none %}
+            <span class="delta-chart-value delta-chart-value-previous">{{ value(chart, item.previous) }}</span>
+            {% endif %}
+          </div>
+          <div class="delta-chart-bars">
+            <div class="delta-chart-bar delta-chart-bar-current"
+                 style="height: {{ current_pct }}%"></div>
+            {% if item.previous is not none %}
+            <div class="delta-chart-bar delta-chart-bar-previous"
+                 style="height: {{ previous_pct }}%"></div>
+            {% endif %}
+          </div>
+          <div class="delta-chart-label">{{ item.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if chart['with_previous'] %}
+      <div class="delta-chart-legend mt-2">
+        <span><i class="delta-chart-swatch delta-chart-swatch-current"></i>
+          Текущий · {{ current_range }}</span>
+        <span><i class="delta-chart-swatch delta-chart-swatch-previous"></i>
+          Предыдущий · {{ previous_range }}</span>
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="text-muted small">Нет данных за выбранный период</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}

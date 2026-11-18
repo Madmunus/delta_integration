@@ -6,8 +6,11 @@ from flask_login import current_user, login_required, login_user
 
 from engine.audit import LOGIN, LOGIN_FAILED, LOGOUT, log_action
 from engine.forms import LoginForm
+from engine.login_guard import (check as check_login, record_failure,
+                                record_success, scope as login_scope)
 from engine.models import User
-from engine.user_sessions import start_session, terminate_current_session
+from engine.user_sessions import (_client_ip, start_session,
+                                  terminate_current_session)
 
 bp = Blueprint('auth', __name__)
 
@@ -19,8 +22,22 @@ def login():
 
     form = LoginForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data.strip().lower()).first()
+        email = form.email.data.strip().lower()
+        key = login_scope(_client_ip(), email)
+        allowed, retry_after = check_login(key)
+        if not allowed:
+            # Сообщение одинаково для любого email: блокировка не раскрывает,
+            # существует ли учётная запись в системе.
+            user = User.query.filter_by(email=email).first()
+            if user is not None:
+                log_action(LOGIN_FAILED, 'Лимит попыток входа исчерпан',
+                           user=user)
+            flash(f'Слишком много неудачных попыток. '
+                  f'Повторите через {retry_after} с.', 'danger')
+            return render_template('auth/login.html', form=form), 429
+        user = User.query.filter_by(email=email).first()
         if user is None or not user.check_password(form.password.data):
+            record_failure(key)
             if user is not None:
                 log_action(LOGIN_FAILED, 'Неверный пароль', user=user)
             flash('Неверный email или пароль', 'danger')
@@ -29,6 +46,7 @@ def login():
             log_action(LOGIN_FAILED, 'Учётная запись отключена', user=user)
             flash('Учётная запись отключена', 'warning')
             return render_template('auth/login.html', form=form)
+        record_success(key)
         login_user(user, remember=form.remember.data)
         start_session(user)
         log_action(LOGIN, 'Вход в систему', user=user)

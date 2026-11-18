@@ -1,23 +1,29 @@
 {% extends 'base.html' %}
+{% from 'reports/_charts.html' import bars with context %}
 {% block title %}Отчёт по клиентской базе{% endblock %}
 {% block content %}
 <h1 class="h4 mb-4">Отчёт по клиентам</h1>
+{% include 'reports/_filters.html' %}
 <div class="row g-3 mb-4">
   <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('clients.list_clients', status='active') }}"><div class="card-body">
+       href="{{ registry_link('clients.list_clients', date_range, status='active') }}"><div class="card-body">
     <div class="display-6">{{ active }}</div>
     <div class="text-muted">активных клиентов</div>
   </div></a></div>
   <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
+       href="{{ registry_link('clients.list_clients', date_range) }}"><div class="card-body">
     <div class="display-6">{{ total }}</div>
     <div class="text-muted">всего в реестре</div>
   </div></a></div>
   <div class="col-md-4"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('clients.list_clients', responsible='none') }}"><div class="card-body">
+       href="{{ registry_link('clients.list_clients', date_range, responsible='none') }}"><div class="card-body">
     <div class="display-6">{{ unassigned }}</div>
     <div class="text-muted">без ответственного</div>
   </div></a></div>
+</div>
+{% include 'reports/_comparison.html' %}
+<div class="row g-3 mb-4">
+  {{ bars(chart, 'Динамика добавления клиентов') }}
 </div>
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
@@ -39,8 +45,8 @@
           <span class="badge text-bg-secondary">отключён</span>
         {% endif %}
       </td>
-      <td class="text-end"><a href="{{ url_for('clients.list_clients', responsible=uid) }}">{{ cnt }}</a></td>
-      <td class="text-end"><a href="{{ url_for('clients.list_clients', responsible=uid, status='active') }}">{{ act or 0 }}</a></td>
+      <td class="text-end"><a href="{{ registry_link('clients.list_clients', date_range, responsible=uid) }}">{{ cnt }}</a></td>
+      <td class="text-end"><a href="{{ registry_link('clients.list_clients', date_range, responsible=uid, status='active') }}">{{ act or 0 }}</a></td>
       <td>
         {% set pct = (100 * (act or 0) / cnt)|round if cnt else 0 %}
         <div class="progress" style="min-width: 120px;">
@@ -96,4 +102,7 @@
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

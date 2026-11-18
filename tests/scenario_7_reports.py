@@ -5,8 +5,12 @@
 агрегированных показателей.
 Результат: отчёты формируются, показатели соответствуют данным.
 """
+import csv
+import io
 import re
+import zipfile
 from datetime import date, timedelta
+from html import unescape
 from urllib.parse import quote
 
 from engine.models import Client, Contract, Document, Task, User, db
@@ -191,6 +195,18 @@ def _document_stats(client_name):
 def _to_number(text):
     """Сумма со страницы («1 500,00») в число."""
     return float(text.replace('\xa0', '').replace(' ', '').replace(',', '.'))
+
+
+def _card_hrefs(html):
+    """Ссылки со всех плиток отчёта (в порядке вывода)."""
+    return re.findall(
+        r'<a class="card delta-report-card[^"]*"\s+href="([^"]+)"', html)
+
+
+def _csv_rows(response):
+    """Строки CSV-ответа без BOM."""
+    text = response.get_data(as_text=True).lstrip('\ufeff')
+    return list(csv.reader(io.StringIO(text), delimiter=';'))
 
 
 def run():
@@ -677,11 +693,176 @@ def run():
                 f'в реестре {exp} необработанный документ клиента',
                 f'HTTP {resp.status_code}, найдено: {got}')
 
+    # --- Общий фильтр дат во всех отчётах ----------------------------------
+    page = web.get('/reports/clients').get_data(as_text=True)
+    steps.check(page.count('data-range-preset=') == 3
+                and 'data-range-preset="year"' in page
+                and 'data-range-preset="quarter"' in page
+                and 'data-range-preset="month"' in page
+                and 'title="Текущий год"' in page
+                and 'title="Текущий квартал"' in page
+                and 'title="Текущий месяц"' in page
+                and 'fa-calendar' in page
+                and 'fa-calendar-day' in page
+                and 'fa-calendar-days' in page
+                and '>Год<' not in page
+                and '>Квартал<' not in page
+                and '>Месяц<' not in page,
+                'В отчётах есть быстрые иконки Год/Квартал/Месяц',
+                'рядом с фильтром дат расположены три иконки с подсказками',
+                f'кнопок: {page.count("data-range-preset=")}')
+
+    old_range = '01.01.2000 — 31.12.2000'
+    range_start = date.today() - timedelta(days=6)
+    recent_range = (f'{range_start:%d.%m.%Y} — '
+                    f'{date.today():%d.%m.%Y}')
+    previous_range = (f'{range_start - timedelta(days=7):%d.%m.%Y} — '
+                      f'{range_start - timedelta(days=1):%d.%m.%Y}')
+    card_counts = {'clients': 3, 'tasks': 4, 'contracts': 6, 'documents': 7}
+    filtered_pages = {}
+    for report_name in card_counts:
+        resp = web.get(f'/reports/{report_name}',
+                       query_string={'date_range': old_range})
+        filtered_pages[report_name] = (resp.status_code,
+                                       resp.get_data(as_text=True))
+    zero_ok = all(
+        status == 200
+        and all(int(value) == 0
+                for value in CARDS_RE.findall(page)[:card_counts[report_name]])
+        for report_name, (status, page) in filtered_pages.items())
+    empty_ok = ('Договоров нет' in filtered_pages['contracts'][1]
+                and 'Документов нет' in filtered_pages['documents'][1])
+    users_kept = all(
+        page.count('delta-report-toggle') == len(users)
+        for report_name in ('clients', 'tasks')
+        for _status, page in [filtered_pages[report_name]])
+    steps.check(zero_ok and empty_ok and users_kept,
+                'Общий фильтр дат применён во всех отчётах',
+                'диапазон без данных обнуляет плитки и группы всех отчётов, '
+                'но строки пользователей остаются',
+                f'плитки: {"все нулевые" if zero_ok else "есть ненулевые"}, '
+                f'пустые группы: {empty_ok}, пользователи: {users_kept}')
+
+    # --- Сравнение периодов и графики --------------------------------------
+    resp = web.get('/reports/contracts', query_string={
+        'date_range': recent_range, 'compare': 'previous'})
+    page = resp.get_data(as_text=True)
+    comparison_ok = (resp.status_code == 200
+                     and 'Сравнение периодов' in page
+                     and (f'Текущий: <span class="fw-semibold">'
+                          f'{recent_range}</span>') in page
+                     and (f'Предыдущий: <span class="fw-semibold">'
+                          f'{previous_range}</span>') in page
+                     and ('Предыдущий период той же длительности '
+                          'сразу перед текущим.') in page
+                     and page.count('delta-compare-item') == 4
+                     and page.count('delta-compare-row-label') == 8
+                     and 'delta-chart-bar-previous' in page
+                     and page.count('delta-chart-legend') >= 1
+                     and page.count('delta-chart-value-current') >= 4
+                     and page.count('delta-chart-value-previous') >= 4
+                     and f'Текущий · {recent_range}' in page
+                     and f'Предыдущий · {previous_range}' in page
+                     and 'без изменений' in page)
+    steps.check(comparison_ok,
+                'Сравнение периодов показывает обе даты и легенду',
+                'показаны текущий и предыдущий диапазоны, подписи столбцов '
+                'графика и 4 показателя с изменением',
+                f'HTTP {resp.status_code}, блоков: {page.count("delta-compare-item")}, '
+                f'легенд: {page.count("delta-chart-legend")}')
+
+    # Выбор сравнения не должен сбрасываться, даже если без двух границ
+    # периода сравнение пока недоступно.
+    resp = web.get('/reports/contracts', query_string={'compare': 'previous'})
+    page = resp.get_data(as_text=True)
+    selected = re.search(r'<option value="previous"[^>]*\bselected\b', page)
+    persisted_ok = (resp.status_code == 200 and selected is not None
+                    and 'Для сравнения укажите обе границы периода.' in page
+                    and 'Сравнение периодов' not in page)
+    steps.check(persisted_ok,
+                'Выбор сравнения сохраняется в select',
+                'после применения фильтра без обеих границ выбранное значение '
+                'остаётся, а подсказка объясняет, почему сравнение не показано',
+                'выбранное значение сохраняется' if persisted_ok
+                else 'значение select сбросилось')
+
+    charts_ok = True
+    for report_name in card_counts:
+        resp = web.get(f'/reports/{report_name}',
+                       query_string={'date_range': recent_range})
+        page = resp.get_data(as_text=True)
+        charts_ok = (charts_ok and resp.status_code == 200
+                     and 'delta-chart' in page and 'delta-chart-col' in page
+                     and 'delta-chart-value-current' in page)
+    steps.check(charts_ok,
+                'Графики динамики строятся во всех отчётах',
+                'каждый отчёт содержит столбчатый график по месяцам',
+                'графики есть' if charts_ok else 'часть графиков отсутствует')
+
+    # --- Плитки ведут сразу в отфильтрованный реестр -----------------------
+    card_links = {}
+    for report_name in card_counts:
+        resp = web.get(f'/reports/{report_name}',
+                       query_string={'date_range': recent_range})
+        page = resp.get_data(as_text=True)
+        card_links[report_name] = _card_hrefs(page)
+    links_ok = all(hrefs and all('date_range=' in href for href in hrefs)
+                   for hrefs in card_links.values())
+    steps.check(links_ok,
+                'Из плиток отчёта переход идёт в отфильтрованный реестр',
+                'у каждой плитки всех отчётов ссылка несёт выбранный период',
+                '; '.join(f'{name}: {len(hrefs)}'
+                          for name, hrefs in card_links.items()))
+
+    draft_href = next(href for href in card_links['contracts']
+                      if 'status=draft' in href)
+    resp = web.get(unescape(draft_href))
+    page = resp.get_data(as_text=True)
+    match = re.search(r'Договоры\s*<span class="text-muted">\((\d+)\)</span>',
+                      page)
+    got = int(match.group(1)) if match else None
+    steps.check(resp.status_code == 200 and got == 1,
+                'Переход из плитки сохраняет фильтр дат в реестре',
+                'в реестре договоров один проект за выбранный период',
+                f'HTTP {resp.status_code}, найдено: {got}, ссылка: {draft_href}')
+
+    # --- Экспорт отчётов ----------------------------------------------------
+    export_ok = True
+    for report_name in card_counts:
+        resp = web.get(f'/reports/export/{report_name}/csv',
+                       query_string={'date_range': old_range})
+        export_ok = (export_ok and resp.status_code == 200
+                     and len(_csv_rows(resp)) == 1)
+    resp = web.get('/reports/export/contracts/csv',
+                   query_string={'date_range': recent_range})
+    rows = _csv_rows(resp)
+    export_ok = (export_ok and resp.status_code == 200 and len(rows) == 2
+                 and rows[0][1] == 'Номер'
+                 and any('Д-004' in row for row in rows[1:]))
+    resp = web.get('/reports/export/contracts/xlsx',
+                   query_string={'date_range': recent_range})
+    with zipfile.ZipFile(io.BytesIO(resp.data)) as archive:
+        sheet = archive.read('xl/worksheets/sheet1.xml').decode('utf-8')
+    disposition = resp.headers.get('Content-Disposition', '')
+    # Имя файла в HTTP-заголовке должно быть ASCII: неэкранированная
+    # кириллица ломает отдачу файла через werkzeug/dev-сервер.
+    export_ok = (export_ok and resp.status_code == 200
+                 and sheet.count('<row ') == 2 and 'Д-004' in sheet
+                 and 'filename*=UTF-8' in disposition
+                 and disposition.isascii())
+    steps.check(export_ok,
+                'Экспорт отчётов в CSV и Excel учитывает фильтр дат',
+                'CSV с BOM и «;», XLSX — корректный zip с листом отчёта; '
+                'пустой период даёт только заголовок',
+                'экспорт работает' if export_ok else 'экспорт некорректен')
+
     # --- Отчёты доступны только руководителю --------------------------------
     emp = app.test_client()
     login(emp, EMAILS['emp1'])
     denied = [path for path in ('/reports/clients', '/reports/tasks',
-                                '/reports/contracts', '/reports/documents')
+                                '/reports/contracts', '/reports/documents',
+                                '/reports/export/contracts/csv',
+                                '/reports/export/contracts/xlsx')
               if emp.get(path).status_code != 403]
     steps.check(not denied,
                 'Отчёты доступны только руководителю',

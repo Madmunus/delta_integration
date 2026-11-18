@@ -145,9 +145,23 @@ a.delta-report-card:hover {
   margin-bottom: .35rem;
 }
 
-.delta-range-title {
-  font-size: .9rem;
-  font-weight: 600;
+.delta-range-head .btn {
+  flex: 0 0 auto;
+}
+
+.delta-range-select {
+  width: auto;
+  min-width: 0;
+  padding: .15rem 1.5rem .15rem .35rem;
+  font-size: .82rem;
+}
+
+.delta-range-month {
+  flex: 1 1 auto;
+}
+
+.delta-range-year {
+  flex: 0 0 4.5rem;
 }
 
 .delta-range-weekdays,
@@ -371,4 +385,134 @@ a.delta-report-card:hover {
   .delta-step-enter {
     animation: none;
   }
+}
+
+/* Сравнение периодов в отчётах */
+.delta-report-compare {
+  border-color: #cfe2ff;
+}
+
+.delta-report-compare .card-header {
+  background-color: #eef4ff;
+  border-bottom-color: #cfe2ff;
+}
+
+.delta-compare-periods {
+  font-size: .8rem;
+  color: #495057;
+}
+
+.delta-compare-item {
+  min-width: 11rem;
+}
+
+.delta-compare-row {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+}
+
+.delta-compare-row-label {
+  flex: 0 0 4.75rem;
+  font-size: .72rem;
+  color: #6c757d;
+}
+
+.delta-compare-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Столбчатые графики отчётов (чистый CSS, без JS-библиотек) */
+.delta-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: .35rem;
+  min-height: 9rem;
+  overflow-x: auto;
+}
+
+.delta-chart-col {
+  display: flex;
+  flex: 1 0 3rem;
+  min-width: 3rem;
+  flex-direction: column;
+  align-items: center;
+  gap: .25rem;
+}
+
+.delta-chart-values {
+  display: flex;
+  min-height: 1.8rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .05rem;
+}
+
+.delta-chart-value {
+  font-size: .65rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.delta-chart-value-current {
+  color: #0d6efd;
+  font-weight: 600;
+}
+
+.delta-chart-value-previous {
+  color: #6c757d;
+}
+
+.delta-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 7rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.delta-chart-bar {
+  width: 38%;
+  max-width: 1.1rem;
+  min-height: 2px;
+  border-radius: .2rem .2rem 0 0;
+}
+
+.delta-chart-bar-current,
+.delta-chart-swatch-current {
+  background-color: #0d6efd;
+}
+
+.delta-chart-bar-previous,
+.delta-chart-swatch-previous {
+  background-color: #b6c8dd;
+}
+
+.delta-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  font-size: .72rem;
+  color: #6c757d;
+}
+
+.delta-chart-swatch {
+  display: inline-block;
+  width: .6rem;
+  height: .6rem;
+  margin-right: .25rem;
+  border-radius: .2rem;
+  vertical-align: -.05rem;
+}
+
+.delta-chart-label {
+  font-size: .68rem;
+  color: #6c757d;
+  white-space: nowrap;
 }

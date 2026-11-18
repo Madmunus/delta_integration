@@ -1,30 +1,38 @@
 {% extends 'base.html' %}
 {% from 'tasks/_status.html' import task_status_badge %}
 {% from 'tasks/_priority.html' import task_priority_badge %}
+{% from 'reports/_charts.html' import bars with context %}
 {% block title %}Отчёт по задачам{% endblock %}
 {% block content %}
 <h1 class="h4 mb-4">Отчёт по задачам</h1>
+{% include 'reports/_filters.html' %}
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('tasks.list_tasks') }}"><div class="card-body">
+       href="{{ registry_link('tasks.list_tasks', date_range) }}"><div class="card-body">
     <div class="display-6">{{ totals.total }}</div>
     <div class="text-muted">всего задач</div>
   </div></a></div>
   <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('tasks.list_tasks', status='done') }}"><div class="card-body">
+       href="{{ registry_link('tasks.list_tasks', date_range, status='done') }}"><div class="card-body">
     <div class="display-6 text-success">{{ totals.done }}</div>
     <div class="text-muted">выполнено</div>
   </div></a></div>
   <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('tasks.list_tasks', status='open') }}"><div class="card-body">
+       href="{{ registry_link('tasks.list_tasks', date_range, status='open') }}"><div class="card-body">
     <div class="display-6">{{ totals.open }}</div>
     <div class="text-muted">в работе</div>
   </div></a></div>
   <div class="col-6 col-md-3"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('tasks.list_tasks', status='overdue') }}"><div class="card-body">
+       href="{{ registry_link('tasks.list_tasks', date_range, status='overdue') }}"><div class="card-body">
     <div class="display-6 text-danger">{{ totals.overdue }}</div>
     <div class="text-muted">просрочено</div>
   </div></a></div>
+</div>
+{% include 'reports/_comparison.html' %}
+<div class="row g-3 mb-4">
+  {{ bars(chart, 'Динамика задач по срокам') }}
+  {{ bars(status_chart, 'Динамика по статусам') }}
+  {{ bars(overdue_chart, 'Просрочки по месяцам') }}
 </div>
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
@@ -48,13 +56,13 @@
         {% endif %}
       </td>
       <td class="text-end text-success"><a
-        href="{{ url_for('tasks.list_tasks', assignee=uid, status='done') }}">{{ done or 0 }}</a></td>
+        href="{{ registry_link('tasks.list_tasks', date_range, assignee=uid, status='done') }}">{{ done or 0 }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('tasks.list_tasks', assignee=uid, status='open') }}">{{ work or 0 }}</a></td>
+        href="{{ registry_link('tasks.list_tasks', date_range, assignee=uid, status='open') }}">{{ work or 0 }}</a></td>
       <td class="text-end {{ 'text-danger fw-bold' if over }}"><a
-        href="{{ url_for('tasks.list_tasks', assignee=uid, status='overdue') }}">{{ over or 0 }}</a></td>
+        href="{{ registry_link('tasks.list_tasks', date_range, assignee=uid, status='overdue') }}">{{ over or 0 }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('tasks.list_tasks', assignee=uid) }}">{{ (done or 0) + (work or 0) }}</a></td>
+        href="{{ registry_link('tasks.list_tasks', date_range, assignee=uid) }}">{{ (done or 0) + (work or 0) }}</a></td>
       <td class="text-end">
         <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
                 type="button" data-bs-toggle="collapse"
@@ -107,4 +115,7 @@
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

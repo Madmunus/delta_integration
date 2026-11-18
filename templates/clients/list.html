@@ -16,7 +16,7 @@
             sort=sort, dir=direction)) }}
 </div>
 
-<form class="row g-2 mb-3" method="get">
+<form class="row g-2 mb-3" method="get" data-registry-filter="clients">
   {% if sort %}
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
@@ -52,7 +52,7 @@
   {% include '_date_range.html' %}
   <div class="col-12 col-md-3 col-lg-2 d-flex gap-2">
     <button class="btn btn-secondary"><i class="fa-solid fa-magnifying-glass"></i></button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('clients.list_clients') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('clients.list_clients') }}" data-filter-reset="clients"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
 </form>
 

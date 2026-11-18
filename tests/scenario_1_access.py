@@ -4,10 +4,12 @@
 клиентов. Результат: сотрудник видит только закреплённых за ним клиентов.
 """
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
+from unittest import mock
 
-from engine.models import (Client, Contract, Contractor, Document, User,
-                           UserAction, UserSession, db)
+from engine import login_guard
+from engine.models import (Client, Contract, Contractor, Document,
+                           LoginAttempt, User, UserAction, UserSession, db)
 from engine.user_sessions import SID_KEY
 from tests.base import (EMAILS, TEST_PASSWORD, Steps, create_scenario_app,
                         login, seed_users)
@@ -15,8 +17,10 @@ from tests.base import (EMAILS, TEST_PASSWORD, Steps, create_scenario_app,
 FT = 'ФТ-1'
 TITLE = 'Ограничение видимости клиентов для учётной записи сотрудника'
 DESCRIPTION = ('Вход под учётной записью сотрудника; проверка ограничения '
-               'видимости клиентов. Результат: сотрудник видит только '
-               'закреплённых за ним клиентов.')
+               'видимости клиентов и блокировки /login после серии неудачных '
+               'попыток. Результат: сотрудник видит только закреплённых за '
+               'ним клиентов, а лимит входов сбрасывается после успешного '
+               'входа и по истечении срока блокировки.')
 
 MY_ACTIVE = 'ООО «Клевер-Т»'        # закреплён за сотрудником 1, активный
 MY_ARCHIVED = 'ООО «Мята-Т»'        # закреплён за сотрудником 1, архивный
@@ -85,6 +89,89 @@ def run():
                 'пароль» вместо страницы ошибки 500',
                 f'HTTP {resp.status_code}'
                 if wrong_ok else f'HTTP {resp.status_code}, форма не показана')
+
+    # --- Шаг 1.2. Серия неудачных попыток учитывается ------------------------
+    guard = app.test_client()
+    guard.environ_base['REMOTE_ADDR'] = '198.51.100.7'
+    with app.app_context():
+        threshold = int(app.config['LOGIN_FAILURE_THRESHOLD'])
+    bad_codes = []
+    for _ in range(threshold):
+        bad = guard.post('/login', data={
+            'email': EMAILS['emp1'], 'password': 'wrong-password'})
+        bad_codes.append(bad.status_code)
+    steps.check(all(code == 401 for code in bad_codes),
+                'Серия неудачных попыток входа учитывается',
+                f'{threshold} неверных паролей подряд возвращают 401 '
+                'и обычное сообщение об ошибке',
+                f'коды ответов: {bad_codes}')
+
+    # --- Шаг 1.3. После порога блокируется даже верный пароль ---------------
+    locked = guard.post('/login', data={
+        'email': EMAILS['emp1'], 'password': TEST_PASSWORD})
+    locked_html = locked.get_data(as_text=True)
+    locked_ok = (locked.status_code == 429
+                 and 'Слишком много неудачных попыток' in locked_html
+                 and 'Повторите через' in locked_html)
+    steps.check(locked_ok,
+                'После N неудач вход блокируется даже с верным паролем',
+                'следующая попытка возвращает 429 и сообщение '
+                'с временем до разблокировки',
+                'блокировка и flash найдены' if locked_ok
+                else f'HTTP {locked.status_code}, flash: {locked_html[:120]}')
+
+    # --- Шаг 1.4. Другой email с того же IP не блокируется -------------------
+    other_mail = guard.post('/login', data={
+        'email': 'unlisted@test.local', 'password': 'wrong-password'})
+    other_html = other_mail.get_data(as_text=True)
+    other_ok = (other_mail.status_code == 401
+                and 'Неверный email или пароль' in other_html)
+    steps.check(other_ok,
+                'Блокировка привязана к email',
+                'другой email с того же IP получает обычный ответ 401',
+                f'HTTP {other_mail.status_code}')
+
+    # --- Шаг 1.5. Успешный вход сбрасывает счётчик неудач --------------------
+    reset = app.test_client()
+    reset.environ_base['REMOTE_ADDR'] = '198.51.100.8'
+    reset.post('/login', data={'email': EMAILS['admin'],
+                               'password': 'wrong-password'})
+    success = reset.post('/login', data={'email': EMAILS['admin'],
+                                         'password': TEST_PASSWORD},
+                         follow_redirects=True)
+    with app.app_context():
+        after_success = db.session.get(
+            LoginAttempt, login_guard.scope('198.51.100.8', EMAILS['admin']))
+    again_client = app.test_client()
+    again_client.environ_base['REMOTE_ADDR'] = '198.51.100.8'
+    again = []
+    for _ in range(threshold):
+        again.append(again_client.post('/login', data={
+            'email': EMAILS['admin'],
+            'password': 'wrong-password'}).status_code)
+    reset_ok = (success.status_code == 200 and after_success is None
+                and all(code == 401 for code in again))
+    steps.check(reset_ok,
+                'Успешный вход сбрасывает счётчик неудач',
+                'после входа новый цикл из N неудач снова начинается с нуля',
+                f'вход: HTTP {success.status_code}, запись удалена: '
+                f'{after_success is None}, коды: {again}')
+
+    # --- Шаг 1.6. Блокировка истекает через заданное время -------------------
+    with app.app_context():
+        lockout = int(app.config['LOGIN_LOCKOUT_SECONDS'])
+    future = datetime.utcnow() + timedelta(seconds=lockout + 5)
+    with mock.patch.object(login_guard, '_now', return_value=future):
+        expired = guard.post('/login', data={
+            'email': EMAILS['emp1'], 'password': 'wrong-password'})
+    expired_html = expired.get_data(as_text=True)
+    expired_ok = (expired.status_code == 401
+                  and 'Неверный email или пароль' in expired_html)
+    steps.check(expired_ok,
+                'Блокировка снимается по истечении срока',
+                'после LOGIN_LOCKOUT_SECONDS снова проверяется пароль '
+                'вместо ответа 429',
+                f'HTTP {expired.status_code}')
 
     # --- Шаг 2. В реестре видны только свои клиенты --------------------------
     html = web.get('/clients').get_data(as_text=True)
@@ -362,8 +449,8 @@ def run():
                 f'второй сотрудник: {emp2_count} записей')
 
     conclusion = ('Сотрудник видит только закреплённых за ним клиентов; '
-                  'управление активными сессиями и журнал действий работают.'
-                  if steps.passed else
-                  'Ограничение видимости, управление сессиями или журнал '
-                  'действий нарушено — см. шаги.')
+                  'блокировка /login после неудачных попыток, управление '
+                  'сессиями и журнал действий работают.' if steps.passed else
+                  'Ограничение видимости, блокировка входа, управление '
+                  'сессиями или журнал действий нарушено — см. шаги.')
     return steps, conclusion

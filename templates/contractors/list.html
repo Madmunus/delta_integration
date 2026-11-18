@@ -13,7 +13,7 @@
   {{ render_pagination(pagination, 'contractors.list_contractors', page_params) }}
 </div>
 
-<form class="row g-2 mb-3" method="get">
+<form class="row g-2 mb-3" method="get" data-registry-filter="contractors">
   {% if sort %}
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ direction }}">
@@ -42,7 +42,8 @@
             aria-label="Применить фильтр"><i class="fa-solid fa-magnifying-glass"></i></button>
     <a class="btn btn-outline-secondary" title="Сбросить фильтр"
        aria-label="Сбросить фильтр"
-       href="{{ url_for('contractors.list_contractors') }}"><i class="fa-solid fa-arrow-rotate-left"></i></a>
+       href="{{ url_for('contractors.list_contractors') }}"
+       data-filter-reset="contractors"><i class="fa-solid fa-arrow-rotate-left"></i></a>
   </div>
 </form>
 

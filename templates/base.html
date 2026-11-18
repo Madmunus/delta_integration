@@ -10,7 +10,7 @@
   <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
+<body data-user-id="{{ current_user.id if current_user.is_authenticated else 'guest' }}">
 {% if current_user.is_authenticated %}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top mb-4">
   <div class="container-fluid">
@@ -83,6 +83,7 @@
 
 <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/searchable-select.js') }}"></script>
+<script src="{{ url_for('static', filename='js/registry-filters.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

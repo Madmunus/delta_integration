@@ -1,0 +1,34 @@
+{#- Сравнение выбранного периода с предыдущим. -#}
+{% if comparison %}
+<div class="card mb-4 delta-report-compare">
+  <div class="card-header py-2">
+    <div class="small fw-semibold">Сравнение периодов</div>
+    <div class="delta-compare-periods">
+      Предыдущий: <span class="fw-semibold">{{ previous_range }}</span>
+      <span class="mx-1">·</span>
+      Текущий: <span class="fw-semibold">{{ current_range }}</span>
+    </div>
+    <div class="small text-muted">
+      Предыдущий период той же длительности сразу перед текущим.
+    </div>
+  </div>
+  <div class="card-body d-flex flex-wrap gap-4">
+    {% for item in comparison['items'] %}
+    <div class="delta-compare-item">
+      <div class="small fw-semibold mb-1">{{ item.label }}</div>
+      <div class="delta-compare-row">
+        <span class="delta-compare-row-label">Текущий</span>
+        {% if item.money %}{{ item.current|money }}{% else %}{{ item.current }}{% endif %}
+      </div>
+      <div class="delta-compare-row text-muted">
+        <span class="delta-compare-row-label">Предыдущий</span>
+        {% if item.money %}{{ item.previous|money if item.previous is not none else '—' }}{% else %}{{ item.previous if item.previous is not none else '—' }}{% endif %}
+      </div>
+      <div class="small {{ 'text-success' if item.delta.startswith('+') else ('text-danger' if item.delta.startswith('-') else 'text-muted') }}">
+        Изменение: {{ item.delta }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

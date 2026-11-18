@@ -80,6 +80,13 @@ class Config:
     REMEMBER_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     WTF_CSRF_ENABLED = True
+    # Блокировка /login после повторных неудачных попыток входа.
+    LOGIN_FAILURE_THRESHOLD = int(
+        os.environ.get('DELTA_LOGIN_FAILURE_THRESHOLD', '5'))
+    LOGIN_FAILURE_WINDOW_SECONDS = int(
+        os.environ.get('DELTA_LOGIN_FAILURE_WINDOW', '900'))
+    LOGIN_LOCKOUT_SECONDS = int(
+        os.environ.get('DELTA_LOGIN_LOCKOUT', '900'))
 
     # Общее хранилище заданий сценарного тестирования: разделяется между
     # воркерами gunicorn. В тестовом режиме используется память процесса.

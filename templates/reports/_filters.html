@@ -1,0 +1,45 @@
+{#- Общий фильтр отчётов: период, сравнение и экспорт. -#}
+{% set date_label = 'Период отчёта' %}
+<form class="row g-2 mb-4" method="get">
+  {% include '_date_range.html' %}
+  <div class="col-12 col-md-4 col-lg-2">
+    <div class="delta-quick-ranges d-flex gap-1"
+         role="group" aria-label="Быстрый выбор периода">
+      <button class="btn btn-outline-secondary" type="button"
+              data-range-preset="year" title="Текущий год"
+              aria-label="Текущий год"><i class="fa-solid fa-calendar"></i></button>
+      <button class="btn btn-outline-secondary" type="button"
+              data-range-preset="quarter" title="Текущий квартал"
+              aria-label="Текущий квартал"><i class="fa-solid fa-calendar-day"></i></button>
+      <button class="btn btn-outline-secondary" type="button"
+              data-range-preset="month" title="Текущий месяц"
+              aria-label="Текущий месяц"><i class="fa-solid fa-calendar-days"></i></button>
+    </div>
+  </div>
+  <div class="col-12 col-md-4 col-lg-3">
+    <select class="form-select" name="compare"
+            aria-label="Сравнить с предыдущим периодом"
+            title="Предыдущий период равен выбранному по длительности и сразу предшествует ему">
+      <option value="" {{ 'selected' if not compare_selected }}>Без сравнения</option>
+      <option value="previous" {{ 'selected' if compare_selected else '' }}>С предыдущим периодом</option>
+    </select>
+    {% if compare_selected and not compare %}
+      <div class="form-text">Для сравнения укажите обе границы периода.</div>
+    {% endif %}
+  </div>
+  {# Кнопки остаются на линии полей, даже когда подсказка увеличивает строку. #}
+  <div class="col-12 col-md-4 col-lg-3 d-flex gap-2 align-items-start">
+    <button class="btn btn-secondary" type="submit">
+      <i class="fa-solid fa-magnifying-glass"></i>
+    </button>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for(request.endpoint) }}"
+       title="Сбросить фильтры отчёта">
+      <i class="fa-solid fa-arrow-rotate-left"></i>
+    </a>
+    <a class="btn btn-outline-primary" href="{{ csv_url }}">
+      <i class="fa-solid fa-file-csv"></i></a>
+    <a class="btn btn-outline-primary" href="{{ xlsx_url }}">
+      <i class="fa-solid fa-file-excel"></i></a>
+  </div>
+</form>

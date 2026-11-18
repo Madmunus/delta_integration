@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'contracts/_status.html' import contract_status_badge %}
+{% from 'reports/_charts.html' import bars with context %}
 {% block title %}Отчёт по договорам{% endblock %}
 {% block content %}
 <div class="mb-4">
@@ -10,37 +11,44 @@
     У архивных клиентов — только завершённые договоры.
   </p>
 </div>
+{% include 'reports/_filters.html' %}
 <div class="row g-3 mb-4">
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
+       href="{{ registry_link('clients.list_clients', date_range) }}"><div class="card-body">
     <div class="display-6">{{ totals.clients }}</div>
     <div class="text-muted">клиентов</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('contracts.list_contracts') }}"><div class="card-body">
+       href="{{ registry_link('contracts.list_contracts', date_range) }}"><div class="card-body">
     <div class="display-6">{{ totals.contracts }}</div>
     <div class="text-muted">всего</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('contracts.list_contracts', status='draft') }}"><div class="card-body">
+       href="{{ registry_link('contracts.list_contracts', date_range, status='draft') }}"><div class="card-body">
     <div class="display-6">{{ totals.draft }}</div>
     <div class="text-muted">проектов</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('contracts.list_contracts', status='active') }}"><div class="card-body">
+       href="{{ registry_link('contracts.list_contracts', date_range, status='active') }}"><div class="card-body">
     <div class="display-6 text-success">{{ totals.active }}</div>
     <div class="text-muted">действующих</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('contracts.list_contracts', status='closed') }}"><div class="card-body">
+       href="{{ registry_link('contracts.list_contracts', date_range, status='closed') }}"><div class="card-body">
     <div class="display-6 text-secondary">{{ totals.closed }}</div>
     <div class="text-muted">завершённых</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('contracts.list_contracts', processed='yes') }}"><div class="card-body">
+       href="{{ registry_link('contracts.list_contracts', date_range, processed='yes') }}"><div class="card-body">
     <div class="display-6 text-info">{{ totals.processed }}</div>
     <div class="text-muted">обработано</div>
   </div></a></div>
+</div>
+{% include 'reports/_comparison.html' %}
+<div class="row g-3 mb-4">
+  {{ bars(chart, 'Суммы договоров по месяцам') }}
+  {{ bars(client_chart, 'Суммы действующих договоров по клиентам') }}
+  {{ bars(status_chart, 'Договоры по статусам') }}
 </div>
 
 <div class="table-responsive">
@@ -65,17 +73,17 @@
         {% if not g.client.is_active %}<span class="badge text-bg-secondary ms-1">архивный</span>{% endif %}
       </td>
       <td class="text-end"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id) }}">{{ g.total }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id) }}">{{ g.total }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='draft') }}">{{ g.counts.get('draft', 0) }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id, status='draft') }}">{{ g.counts.get('draft', 0) }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='active') }}">{{ g.counts.get('active', 0) }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id, status='active') }}">{{ g.counts.get('active', 0) }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id, status='closed') }}">{{ g.counts.get('closed', 0) }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id, status='closed') }}">{{ g.counts.get('closed', 0) }}</a></td>
       <td class="text-end text-nowrap"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
       <td class="text-end text-nowrap"><a
-        href="{{ url_for('contracts.list_contracts', client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
+        href="{{ registry_link('contracts.list_contracts', date_range, client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
       <td class="text-end text-nowrap">{{ g.amount_active|money }}</td>
       <td class="text-end text-nowrap">{{ g.amount_total|money }}</td>
       <td class="text-end">
@@ -130,4 +138,7 @@
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

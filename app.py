@@ -8,6 +8,9 @@
     DELTA_DATABASE_URL       — строка подключения (PostgreSQL в продакшене)
     DELTA_SYNC_INTERVAL      — период синхронизации клиентов, сек (по умолчанию 3600)
     DELTA_DOCUMENTS_INTERVAL — период загрузки документов, сек (по умолчанию 3600)
+    DELTA_LOGIN_FAILURE_THRESHOLD — неудачных входов до блокировки (по умолчанию 5)
+    DELTA_LOGIN_FAILURE_WINDOW — окно учёта неудач, сек (по умолчанию 900)
+    DELTA_LOGIN_LOCKOUT — длительность блокировки входа, сек (по умолчанию 900)
 """
 import logging
 import os

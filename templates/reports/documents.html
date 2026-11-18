@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'documents/_status.html' import document_status_badge %}
+{% from 'reports/_charts.html' import bars with context %}
 {% block title %}Отчёт по документам{% endblock %}
 {% block content %}
 <div class="mb-4">
@@ -9,42 +10,48 @@
     количество по статусам и признаку «Обработан».
   </p>
 </div>
+{% include 'reports/_filters.html' %}
 <div class="row g-3 mb-4">
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('clients.list_clients') }}"><div class="card-body">
+       href="{{ registry_link('clients.list_clients', date_range) }}"><div class="card-body">
     <div class="display-6">{{ totals.clients }}</div>
     <div class="text-muted">клиентов с документами</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range) }}"><div class="card-body">
     <div class="display-6">{{ totals.documents }}</div>
     <div class="text-muted">всего документов</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents', status='Черновик') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range, status='Черновик') }}"><div class="card-body">
     <div class="display-6 text-secondary">{{ totals.draft }}</div>
     <div class="text-muted">черновиков</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents', status='Зарегистрирован') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range, status='Зарегистрирован') }}"><div class="card-body">
     <div class="display-6 text-primary">{{ totals.registered }}</div>
     <div class="text-muted">зарегистрировано</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents', status='Проведён') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range, status='Проведён') }}"><div class="card-body">
     <div class="display-6 text-success">{{ totals.conducted }}</div>
     <div class="text-muted">проведено</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents', status='Отменён') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range, status='Отменён') }}"><div class="card-body">
     <div class="display-6 text-danger">{{ totals.cancelled }}</div>
     <div class="text-muted">отменено</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
-       href="{{ url_for('documents.list_documents', processed='yes') }}"><div class="card-body">
+       href="{{ registry_link('documents.list_documents', date_range, processed='yes') }}"><div class="card-body">
     <div class="display-6 text-info">{{ totals.processed }}</div>
     <div class="text-muted">обработано</div>
   </div></a></div>
+</div>
+{% include 'reports/_comparison.html' %}
+<div class="row g-3 mb-4">
+  {{ bars(chart, 'Динамика документов') }}
+  {{ bars(status_chart, 'Документы по статусам') }}
 </div>
 
 <div class="table-responsive">
@@ -68,19 +75,19 @@
         {% if not g.client.is_active %}<span class="badge text-bg-secondary ms-1">архивный</span>{% endif %}
       </td>
       <td class="text-end"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id) }}">{{ g.total }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id) }}">{{ g.total }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, status='Черновик') }}">{{ g.counts.get('Черновик', 0) }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, status='Черновик') }}">{{ g.counts.get('Черновик', 0) }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, status='Зарегистрирован') }}">{{ g.counts.get('Зарегистрирован', 0) }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, status='Зарегистрирован') }}">{{ g.counts.get('Зарегистрирован', 0) }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, status='Проведён') }}">{{ g.counts.get('Проведён', 0) }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, status='Проведён') }}">{{ g.counts.get('Проведён', 0) }}</a></td>
       <td class="text-end"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, status='Отменён') }}">{{ g.counts.get('Отменён', 0) }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, status='Отменён') }}">{{ g.counts.get('Отменён', 0) }}</a></td>
       <td class="text-end text-nowrap"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
       <td class="text-end text-nowrap"><a
-        href="{{ url_for('documents.list_documents', client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
+        href="{{ registry_link('documents.list_documents', date_range, client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
       <td class="text-end">
         <button class="btn btn-sm btn-outline-secondary delta-report-toggle"
                 type="button" data-bs-toggle="collapse"
@@ -135,4 +142,7 @@
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

@@ -12,7 +12,8 @@ FT = 'Интерфейс'
 TITLE = 'AJAX-выполнение сценариев с пошаговым выводом результатов'
 DESCRIPTION = ('Сценарий запускается AJAX-запросом и возвращает JSON-сводку; '
                'результат каждого шага запрашивается отдельно. Проверяются '
-               'также обычный POST без JavaScript и запрет для сотрудника.')
+               'также обычный POST без JavaScript, запрет для сотрудника '
+               'и элементы интерфейса без внешних библиотек.')
 
 AJAX = {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
 
@@ -135,7 +136,61 @@ def run():
                 'по data-searchable, а не по текущему числу option',
                 'скрипт и стили найдены' if ok else 'часть файлов отсутствует')
 
-    conclusion = ('AJAX-запуск сценариев, пошаговый вывод результатов '
-                  'и поисковый select в стиле Select2 работают.' if steps.passed
+    # --- Шаг 9. Календарь дат управляется select месяца и года -------------
+    range_script_path = static_root / 'js/date-range.js'
+    range_script_text = (range_script_path.read_text(encoding='utf-8')
+                         if range_script_path.is_file() else '')
+    ok = ('delta-range-month' in range_script_text
+          and 'delta-range-year' in range_script_text
+          and 'delta-range-title' not in range_script_text
+          and 'delta-range-month' in css_text
+          and 'delta-range-year' in css_text)
+    steps.check(ok, 'В календаре дат есть select месяца и года',
+                'заголовок календаря состоит из двух селектов, '
+                'а статический текст месяца и года удалён',
+                'селекты найдены' if ok else 'часть файлов устарела')
+
+    ok = ('data-range-preset' in range_script_text
+          and 'presetRange' in range_script_text
+          and 'year' in range_script_text
+          and 'quarter' in range_script_text
+          and 'month' in range_script_text)
+    steps.check(ok, 'Быстрые периоды заполняют поле дат',
+                'для Года/Квартала/Месяца есть обработчик, '
+                'который записывает диапазон в поле формы',
+                'обработчик найден' if ok else 'обработчик отсутствует')
+
+    # --- Шаг 10. Фильтры реестров сохраняются в браузере ---------------------
+    saved_path = static_root / 'js/registry-filters.js'
+    saved_text = (saved_path.read_text(encoding='utf-8')
+                  if saved_path.is_file() else '')
+    base_path = static_root.parent / 'templates' / 'base.html'
+    base_text = (base_path.read_text(encoding='utf-8')
+                 if base_path.is_file() else '')
+    templates_root = static_root.parent / 'templates'
+    registry_keys = ('clients', 'contractors', 'contracts', 'documents',
+                     'tasks')
+    registry_ok = True
+    for key in registry_keys:
+        template = templates_root / key / 'list.html'
+        text = template.read_text(encoding='utf-8') if template.is_file() else ''
+        registry_ok = (registry_ok
+                       and f'data-registry-filter="{key}"' in text
+                       and f'data-filter-reset="{key}"' in text)
+    ok = ('js/registry-filters.js' in base_text
+          and 'data-user-id=' in base_text
+          and 'localStorage' in saved_text
+          and 'data-registry-filter' in saved_text
+          and 'EXCLUDED' in saved_text
+          and 'data-filter-reset' in saved_text
+          and registry_ok)
+    steps.check(ok, 'Фильтры реестров сохраняются в localStorage',
+                'состояние форм привязано к пользователю и реестру, '
+                'пагинация и сортировка не сохраняются',
+                'скрипт подключён' if ok else 'часть файлов устарела')
+
+    conclusion = ('AJAX-запуск сценариев, пошаговый вывод результатов, '
+                  'поисковый select, календарь дат и сохранённые фильтры '
+                  'без внешних библиотек работают.' if steps.passed
                   else 'Интерфейс сценариев нарушен — см. шаги.')
     return steps, conclusion
