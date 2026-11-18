@@ -17,9 +17,9 @@
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab"
     data-bs-target="#tab-requisites" type="button">Данные</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
-    data-bs-target="#tab-contracts" type="button">Договоры ({{ contracts|length }})</button></li>
+    data-bs-target="#tab-contracts" type="button">Договоры ({{ contracts_total }})</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab"
-    data-bs-target="#tab-docs" type="button">Документы ({{ documents|length }})</button></li>
+    data-bs-target="#tab-docs" type="button">Документы ({{ documents_total }})</button></li>
 </ul>
 
 <div class="tab-content border border-top-0 p-3 bg-body rounded-bottom">
@@ -48,6 +48,12 @@
   </div>
 
   <div class="tab-pane fade" id="tab-contracts">
+    {% if contracts_total > detail_rows %}
+    <div class="d-flex justify-content-end small text-muted mb-2">
+      Показаны {{ contracts|length }} из {{ contracts_total }} —
+      <a href="{{ url_for('contracts.list_contracts', contractor=contractor.id) }}">весь реестр →</a>
+    </div>
+    {% endif %}
     <div class="table-responsive">
     <table class="table table-hover align-middle">
       <thead class="table-light"><tr><th>Номер</th><th>Дата</th><th>Клиент</th>
@@ -84,6 +90,12 @@
   </div>
 
   <div class="tab-pane fade" id="tab-docs">
+    {% if documents_total > detail_rows %}
+    <div class="d-flex justify-content-end small text-muted mb-2">
+      Показаны {{ documents|length }} из {{ documents_total }} —
+      <a href="{{ url_for('documents.list_documents', contractor=contractor.id) }}">весь реестр →</a>
+    </div>
+    {% endif %}
     <div class="table-responsive">
     <table class="table table-hover align-middle">
       <thead class="table-light"><tr><th>Вид документа</th><th>Номер</th><th>Дата</th>

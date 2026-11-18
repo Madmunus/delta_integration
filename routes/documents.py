@@ -3,6 +3,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, func, or_
+from sqlalchemy.orm import contains_eager, joinedload
 
 from engine.dates import apply_date_range
 from engine.forms import DocumentForm
@@ -67,7 +68,9 @@ def list_documents():
     """
     # Контрагент нужен и для поиска, и для сортировки по столбцу
     q = (Document.query.join(Client)
-         .outerjoin(Contractor, Document.contractor_id == Contractor.id))
+         .outerjoin(Contractor, Document.contractor_id == Contractor.id)
+         .options(contains_eager(Document.client),
+                  contains_eager(Document.contractor)))
     if not current_user.is_admin:
         q = q.filter(Client.responsible_id == current_user.id)
 
@@ -98,10 +101,13 @@ def list_documents():
     # Фильтр по дате документа (диапазон «с — по» в едином поле)
     q, date_range = apply_date_range(q, Document.doc_date, request.args)
 
-    # Фильтр по клиенту (идёт после фильтра по дате)
+    # Фильтры по клиенту и контрагенту (идут после фильтра по дате)
     client_id = request.args.get('client', type=int)
+    contractor_id = request.args.get('contractor', type=int)
     if client_id:
         q = q.filter(Document.client_id == client_id)
+    if contractor_id:
+        q = q.filter(Document.contractor_id == contractor_id)
 
     # Сортировка по столбцам: 3 состояния — по возрастанию, по убыванию
     # и отключена. По умолчанию: сначала черновики, затем зарегистрированные,
@@ -133,8 +139,10 @@ def list_documents():
                            pagination=pagination,
                            search=search, status=status,
                            processed=processed,
-                           client_id=client_id,
+                           client_id=client_id, contractor_id=contractor_id,
                            clients=_visible_clients(),
+                           contractors=Contractor.query.order_by(
+                               Contractor.full_name).all(),
                            statuses=DOCUMENT_STATUSES,
                            date_range=date_range,
                            sort=sort, direction=direction)
@@ -147,7 +155,10 @@ def detail(document_id):
 
     Сотрудник видит только документы клиентов, закреплённых за ним (ФТ-1).
     """
-    document = Document.query.get_or_404(document_id)
+    document = (Document.query
+                .options(joinedload(Document.client),
+                         joinedload(Document.contractor))
+                .filter(Document.id == document_id).first_or_404())
     if (not current_user.is_admin
             and document.client.responsible_id != current_user.id):
         abort(403)
@@ -158,7 +169,10 @@ def detail(document_id):
 @login_required
 def edit_document(document_id):
     """Карточка редактирования документа: вручную меняются только заметки."""
-    document = Document.query.get_or_404(document_id)
+    document = (Document.query
+                .options(joinedload(Document.client),
+                         joinedload(Document.contractor))
+                .filter(Document.id == document_id).first_or_404())
     if (not current_user.is_admin
             and document.client.responsible_id != current_user.id):
         abort(403)

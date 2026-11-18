@@ -160,7 +160,22 @@ def run():
                 'таблица перенесена' if 'Наименование' not in bases_html
                 else 'таблица всё ещё на странице «1С База»')
 
-    # --- Шаг 5.1. Поиск по таблице контрагентов ------------------------
+    # --- Шаг 5.1. Счётчик клиентов ведёт в реестр ----------------------
+    card = re.search(r'<dt class="col-7">Клиентов в реестре</dt>\s*'
+                     r'<dd class="col-5 text-end">\s*'
+                     r'<a href="/clients">(\d+)</a>\s*</dd>', bases_html)
+    registry = re.search(
+        r'Клиенты\s*<span class="text-muted">\((\d+)\)</span>', html)
+    counter_ok = (card is not None and registry is not None
+                  and card.group(1) == registry.group(1))
+    steps.check(counter_ok,
+                'Счётчик «Клиентов в реестре» ведёт в реестр клиентов',
+                'число клиентов в блоке «Состояние синхронизации» — '
+                'ссылка на страницу «Клиенты» и совпадает с реестром',
+                f'в настройке: {card.group(1) if card else "ссылки нет"}, '
+                f'в реестре: {registry.group(1) if registry else "?"}')
+
+    # --- Шаг 5.2. Поиск по таблице контрагентов ------------------------
     filtered_html = web.get('/contractors',
                             query_string={'q': 'Альфа'}).get_data(as_text=True)
     filter_ok = ('Альфа-Тест' in filtered_html

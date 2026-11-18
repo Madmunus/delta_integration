@@ -8,7 +8,7 @@
 (``/testing/run/<scenario_id>/step?index=N``) и сразу выводится в таблицу.
 Без JavaScript формы отправляются обычным POST с редиректом.
 """
-from flask import (Blueprint, abort, flash, jsonify, redirect,
+from flask import (Blueprint, abort, current_app, flash, jsonify, redirect,
                    render_template, request, url_for)
 from flask_login import current_user, login_required
 
@@ -33,16 +33,8 @@ def _admin_guard():
 
 def _summary(result):
     """Сводка по сценарию без пошаговых результатов (для AJAX)."""
-    return {
-        'id': result['id'],
-        'ft': result['ft'],
-        'title': result['title'],
-        'status': result['status'],
-        'executed_at': result['executed_at'],
-        'duration_ms': result['duration_ms'],
-        'total_steps': len(result['steps']),
-        'conclusion': result['conclusion'],
-    }
+    from tests.runner import scenario_summary
+    return scenario_summary(result)
 
 
 @bp.route('/testing')
@@ -110,24 +102,42 @@ def run_step(scenario_id):
 @bp.route('/testing/run-all', methods=['POST'])
 @login_required
 def run_all():
-    """Выполнить все сценарии последовательно."""
+    """Выполнить все сценарии (в живой системе — в фоновом потоке)."""
     denied = _admin_guard()
     if denied:
         return denied
-    from tests.runner import registry, run_scenario, store_results
-    items = registry()
-    results = {}
-    total = passed = 0
-    for item in items:
-        result = run_scenario(item['id'])
-        results[item['id']] = result
-        total += 1
-        passed += result['status'] == 'passed'
-    store_results(current_user.id, results)
+    from tests.runner import start_run_all
+
+    app = current_app._get_current_object()
     if _wants_json():
-        return jsonify(total=total, passed=passed,
-                       scenarios=[_summary(results[item['id']])
-                                  for item in items])
-    flash(f'Выполнено сценариев: {total}, пройдено: {passed}',
-          'success' if passed == total else 'danger')
+        job = start_run_all(current_user.id, app)
+        if job.get('status') == 'running':
+            # Живое приложение: клиент опрашивает status до завершения.
+            return jsonify(job), 202
+        # TestingConfig: синхронный путь, ответ сохраняет прежнюю форму.
+        return jsonify(total=job['total'], passed=job['passed'],
+                       scenarios=job['scenarios'])
+
+    result = start_run_all(current_user.id, app, synchronous=True)
+    flash(f"Выполнено сценариев: {result['total']}, "
+          f"пройдено: {result['passed']}",
+          'success' if result['passed'] == result['total'] else 'danger')
     return redirect(url_for('testing.index'))
+
+
+@bp.route('/testing/run-all/status/<job_id>')
+@login_required
+def run_all_status(job_id):
+    """Состояние фонового запуска всех сценариев."""
+    denied = _admin_guard()
+    if denied:
+        return denied
+    from tests.runner import get_run_all_job
+    job = get_run_all_job(current_user.id, job_id)
+    if job is None:
+        return jsonify(error='Задание не найдено'), 404
+    if job.get('status') == 'done':
+        return jsonify(total=job['total'], completed=job['completed'],
+                       passed=job['passed'], scenarios=job['scenarios'],
+                       status='done', job_id=job['job_id'])
+    return jsonify(job)

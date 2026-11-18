@@ -5,6 +5,7 @@
 {% from 'tasks/_status.html' import task_status_badge %}
 {% from 'tasks/_priority.html' import task_priority_badge %}
 {% block content %}
+{% set col_count = 8 if current_user.is_admin else 7 %}
 {% set filter_params = dict(q=search, status=status,
                             assignee='mine' if mine else (assignee_id or ''),
                             client=client_id, priority=priority,
@@ -95,7 +96,9 @@
   <thead class="table-light"><tr>
     <th>{{ sort_link('tasks.list_tasks', 'title', 'Задача', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('tasks.list_tasks', 'client', 'Клиент', sort, direction, sort_params) }}</th>
+    {% if current_user.is_admin %}
     <th>{{ sort_link('tasks.list_tasks', 'assignee', 'Исполнитель', sort, direction, sort_params) }}</th>
+    {% endif %}
     <th>{{ sort_link('tasks.list_tasks', 'due_date', 'Срок', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('tasks.list_tasks', 'priority', 'Приоритет', sort, direction, sort_params) }}</th>
     <th>{{ sort_link('tasks.list_tasks', 'status', 'Статус', sort, direction, sort_params) }}</th>
@@ -110,7 +113,9 @@
           title="Создана автоматически по сроку отчётности">авто</span>{% endif %}</td>
       <td>{% if t.client %}<a href="{{ url_for('clients.detail', client_id=t.client_id) }}"
         >{{ t.client.name|truncate(30) }}</a>{% else %}—{% endif %}</td>
+      {% if current_user.is_admin %}
       <td>{{ t.assignee.fio if t.assignee else '—' }}</td>
+      {% endif %}
       <td class="text-nowrap">{{ t.due_date|dt if t.due_date else '—' }}
         {% if t.days_left is not none and t.status != 'done' %}
           {% if t.days_left < 0 %}<span class="badge text-bg-danger">−{{ -t.days_left }} дн.</span>
@@ -155,8 +160,11 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="text-muted">Задач не найдено</td></tr>
+    <tr><td colspan="{{ col_count }}" class="text-muted">Задач не найдено</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

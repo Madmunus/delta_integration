@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash, generate_password_hash
 
 db = SQLAlchemy()
@@ -80,6 +81,10 @@ class User(UserMixin, db.Model):
 # ----------------------------------------------------------------------------
 class Client(db.Model):
     __tablename__ = 'clients'
+    __table_args__ = (
+        db.Index('ix_clients_status_name', 'status', 'name'),
+        db.Index('ix_clients_responsible_status', 'responsible_id', 'status'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(512), nullable=False, index=True)       # Наименование
@@ -116,7 +121,7 @@ class Client(db.Model):
 
     @property
     def active_contracts(self):
-        return [c for c in self.contracts if c.status == 'active']
+        return self.contracts.filter_by(status='active').all()
 
     def close_open_contracts(self) -> int:
         """Закрыть проекты и действующие договоры клиента.
@@ -144,6 +149,9 @@ class Client(db.Model):
 # ----------------------------------------------------------------------------
 class Contractor(db.Model):
     __tablename__ = 'contractors'
+    __table_args__ = (
+        db.Index('ix_contractors_status_name', 'status', 'full_name'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     external_ref = db.Column(db.String(64), unique=True, index=True)  # Ref_Key в Catalog_Контрагенты
@@ -175,6 +183,11 @@ class Contractor(db.Model):
 # ----------------------------------------------------------------------------
 class Contract(db.Model):
     __tablename__ = 'contracts'
+    __table_args__ = (
+        db.Index('ix_contracts_client_status', 'client_id', 'status'),
+        db.Index('ix_contracts_client_processed', 'client_id', 'processed'),
+        db.Index('ix_contracts_client_date', 'client_id', 'signed_date'),
+    )
 
     # Статусы, при которых договор считается открытым (не завершён)
     OPEN_STATUSES = ('draft', 'active')
@@ -242,10 +255,17 @@ def close_archived_client_contracts() -> int:
     Правило системы: у архивного клиента не может быть проектов договоров
     и действующих договоров. Возвращает число закрытых договоров.
     """
-    closed = 0
-    for client in Client.query.filter_by(status='archived').all():
-        closed += client.close_open_contracts()
-    return closed
+    archived_ids = [row[0] for row in db.session.query(Client.id)
+                    .filter(Client.status == 'archived').all()]
+    if not archived_ids:
+        return 0
+    return Contract.query.filter(
+        Contract.client_id.in_(archived_ids),
+        Contract.status.in_(Contract.OPEN_STATUSES),
+    ).update(
+        {Contract.status: 'closed'},
+        synchronize_session='fetch',
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -253,6 +273,11 @@ def close_archived_client_contracts() -> int:
 # ----------------------------------------------------------------------------
 class Document(db.Model):
     __tablename__ = 'documents'
+    __table_args__ = (
+        db.Index('ix_documents_client_date', 'client_id', 'doc_date'),
+        db.Index('ix_documents_client_status', 'client_id', 'status'),
+        db.Index('ix_documents_client_processed', 'client_id', 'processed'),
+    )
 
     # Соответствие статуса и цвета бейджа (Bootstrap).
     # Статусы приходят из «1С:Документооборот» свободным текстом,
@@ -314,6 +339,11 @@ class Document(db.Model):
 # ----------------------------------------------------------------------------
 class Task(db.Model):
     __tablename__ = 'tasks'
+    __table_args__ = (
+        db.Index('ix_tasks_client_status_due', 'client_id', 'status', 'due_date'),
+        db.Index('ix_tasks_assignee_status_due', 'assignee_id', 'status', 'due_date'),
+        db.Index('ix_tasks_client_due', 'client_id', 'due_date'),
+    )
 
     STATUS_NEW = 'new'
     STATUS_IN_PROGRESS = 'in_progress'
@@ -420,14 +450,14 @@ def assign_missing_task_assignees() -> int:
     или отключён — первый активный пользователь. Возвращает число
     исправленных задач.
     """
-    missing = Task.query.filter(Task.assignee_id.is_(None)).all()
+    missing = (Task.query.options(joinedload(Task.client))
+               .filter(Task.assignee_id.is_(None)).all())
     if not missing:
         return 0
-    active_ids = [u.id for u in User.query.filter_by(is_active_flag=True)
-                  .order_by(User.id).all()]
+    active_ids = {u.id for u in User.query.filter_by(is_active_flag=True).all()}
     if not active_ids:
         return 0
-    fallback_id = active_ids[0]
+    fallback_id = min(active_ids)
     for task in missing:
         responsible_id = task.client.responsible_id if task.client else None
         task.assignee_id = (responsible_id if responsible_id in active_ids

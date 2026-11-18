@@ -3,11 +3,12 @@
 Вход под учётной записью сотрудника; проверка ограничения видимости
 клиентов. Результат: сотрудник видит только закреплённых за ним клиентов.
 """
+import re
 from datetime import date
 
-from engine.models import Client, Contract, Contractor, Document, db
-from tests.base import (EMAILS, Steps, create_scenario_app, login,
-                        seed_users)
+from engine.models import Client, Contract, Contractor, Document, User, db
+from tests.base import (EMAILS, TEST_PASSWORD, Steps, create_scenario_app,
+                        login, seed_users)
 
 FT = 'ФТ-1'
 TITLE = 'Ограничение видимости клиентов для учётной записи сотрудника'
@@ -171,6 +172,33 @@ def run():
                 'вид документа ведёт в карточку, столбца «Ссылка» нет',
                 'оформление совпадает с реестрами' if client_ok
                 else 'оформление отличается от реестров')
+
+    # --- Шаг 8. Порядок пользователей в списке -------------------------------
+    with app.app_context():
+        extra = [
+            # Отключённый руководитель — всё равно в первой группе
+            User(email='boss2@test.local', fio='Яковлев Пётр Сергеевич',
+                 role='admin', is_active_flag=False),
+            # Отключённый сотрудник — в последней группе, несмотря на фамилию
+            User(email='inactive@test.local', fio='Абрамова Инна Петровна',
+                 role='employee', is_active_flag=False),
+        ]
+        for user in extra:
+            user.set_password(TEST_PASSWORD)
+            db.session.add(user)
+        db.session.commit()
+
+    html = boss.get('/users').get_data(as_text=True)
+    body = html.split('<tbody>', 1)[-1]
+    order = re.findall(r'<a href="/users/\d+/edit">([^<]+)</a>', body)
+    expected = ['Админов Аркадий Петрович', 'Яковлев Пётр Сергеевич',
+                'Работникова Ольга Львовна', 'Сотрудников Сергей Иванович',
+                'Абрамова Инна Петровна']
+    steps.check(order == expected,
+                'Порядок пользователей: руководители, активные, отключённые',
+                'сначала руководители, затем активные пользователи, затем '
+                'отключённые; внутри каждой группы — по ФИО',
+                f'порядок: {order}')
 
     conclusion = ('Сотрудник видит только закреплённых за ним клиентов.'
                   if steps.passed else 'Ограничение видимости нарушено — см. шаги.')

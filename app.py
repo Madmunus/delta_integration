@@ -10,6 +10,7 @@
 """
 import logging
 import os
+from decimal import Decimal, InvalidOperation
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, logout_user
@@ -131,8 +132,11 @@ def create_app(config_name=None):
         if value is None:
             return '—'
         try:
-            return f'{float(value):,.2f}'.replace(',', ' ').replace('.', ',')
-        except (TypeError, ValueError):
+            # Decimal форматируем напрямую: float теряет точность на суммах.
+            text = (f'{value:,.2f}' if isinstance(value, Decimal)
+                    else f'{float(value):,.2f}')
+            return text.replace(',', ' ').replace('.', ',')
+        except (TypeError, ValueError, InvalidOperation):
             return str(value)
 
     # --- Обработка ошибок ---

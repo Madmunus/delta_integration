@@ -6,9 +6,9 @@
 поддерживаются для совместимости со ссылками.
 """
 import re
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import Date as SADate, DateTime as SADateTime, func
 
 DATE_FORMATS = ('%Y-%m-%d', '%d.%m.%Y')
 DISPLAY_FORMAT = '%d.%m.%Y'
@@ -89,6 +89,29 @@ def date_range_value(date_from, date_to):
     return ''
 
 
+def _range_bounds(column, d_from, d_to):
+    """Границы сравнения для колонки Date/DateTime.
+
+    Полуоткрытый интервал ``[низ; верх)`` работает с индексами: в отличие
+    от ``func.date(column)``, он не применяет функцию к самому столбцу.
+    Для DateTime верхняя граница — начало следующего дня, поэтому в
+    диапазон попадают записи с любым временем в последний день.
+    """
+    is_datetime = isinstance(column.type, SADateTime)
+    if not is_datetime and not isinstance(column.type, SADate):
+        # Неизвестный тип: оставляем прежний вариант с приведением даты.
+        return None
+    low = high = None
+    if d_from:
+        low = (datetime.combine(d_from, time.min)
+               if is_datetime else d_from)
+    if d_to:
+        upper = d_to + timedelta(days=1)
+        high = (datetime.combine(upper, time.min)
+                if is_datetime else upper)
+    return low, high
+
+
 def apply_date_range(query, column, args):
     """Отфильтровать запрос по диапазону дат указанного столбца.
 
@@ -99,13 +122,18 @@ def apply_date_range(query, column, args):
     date_from, date_to = read_date_range(args)
     d_from = parse_query_date(date_from)
     d_to = parse_query_date(date_to)
-    # Сравниваем именно календарные даты: в SQLite значение хранится как
-    # текст, и сравнение с datetime на границе суток (00:00:00) теряет
-    # записи, созданные ровно в полночь.
-    if d_from:
-        query = query.filter(func.date(column) >= d_from)
-    if d_to:
-        query = query.filter(func.date(column) <= d_to)
+    bounds = _range_bounds(column, d_from, d_to)
+    if bounds is None:
+        if d_from:
+            query = query.filter(func.date(column) >= d_from)
+        if d_to:
+            query = query.filter(func.date(column) <= d_to)
+    else:
+        low, high = bounds
+        if low is not None:
+            query = query.filter(column >= low)
+        if high is not None:
+            query = query.filter(column < high)
     return (query,
             date_range_value(
                 d_from.strftime(DISPLAY_FORMAT) if d_from else '',

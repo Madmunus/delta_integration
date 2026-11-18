@@ -1,4 +1,6 @@
 """Аутентификация и разграничение доступа (ФТ-1, НФТ-4)."""
+from urllib.parse import urlparse
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
@@ -25,9 +27,12 @@ def login():
         login_user(user, remember=form.remember.data)
         flash(f'Добро пожаловать, {user.fio}!', 'success')
         next_url = request.args.get('next')
-        # Защита от open redirect
-        if next_url and not next_url.startswith('/'):
-            next_url = None
+        # Защита от open redirect: только локальный абсолютный путь.
+        if next_url:
+            parsed = urlparse(next_url)
+            if (parsed.scheme or parsed.netloc
+                    or next_url.startswith('//') or '\\' in next_url):
+                next_url = None
         return redirect(next_url or url_for('dashboard.index'))
 
     return render_template('auth/login.html', form=form)

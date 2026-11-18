@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, render_template, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import case, func
+from sqlalchemy.orm import joinedload
 
 from engine.models import Client, Contract, Contractor, Document, Task
 from routes.contracts import DEFAULT_STATUS_ORDER as CONTRACT_STATUS_ORDER
@@ -42,11 +43,19 @@ def index():
     clients_q = Client.query
     if not is_admin:
         clients_q = clients_q.filter(Client.responsible_id == current_user.id)
-    clients_total = clients_q.count()
-    clients_active = clients_q.filter(Client.status == 'active').count()
-    clients_archived = clients_q.filter(Client.status == 'archived').count()
-    clients_new = clients_q.filter(Client.created_at >= month_ago).count()
+    client_agg = clients_q.with_entities(
+        func.count().label('total'),
+        func.count(case((Client.status == 'active', 1))).label('active'),
+        func.count(case((Client.status == 'archived', 1))).label('archived'),
+        func.count(case((Client.created_at >= month_ago, 1))).label('new'),
+        func.count(case((Client.responsible_id.is_(None), 1))).label('unassigned'),
+    ).one()
+    clients_total = client_agg.total
+    clients_active = client_agg.active
+    clients_archived = client_agg.archived
+    clients_new = client_agg.new
     clients_preview = (clients_q
+                       .options(joinedload(Client.responsible))
                        .order_by(CLIENT_STATUS_ORDER, Client.name.asc())
                        .limit(5).all())
     client_stats = [
@@ -56,21 +65,22 @@ def index():
               url_for('clients.list_clients', status='archived')),
     ]
     if is_admin:
-        clients_unassigned = clients_q.filter(
-            Client.responsible_id.is_(None)).count()
         client_stats.append(
-            _stat('Без ответственного', clients_unassigned, 'warning',
+            _stat('Без ответственного', client_agg.unassigned, 'warning',
                   url_for('clients.list_clients', responsible='none')))
     client_stats.append(_stat('Новые за 30 дней', clients_new, 'info'))
 
     # --- Контрагенты -------------------------------------------------------
-    contractors_total = Contractor.query.count()
-    contractors_active = Contractor.query.filter(
-        Contractor.status == 'active').count()
-    contractors_archived = Contractor.query.filter(
-        Contractor.status == 'archived').count()
-    contractors_new = Contractor.query.filter(
-        Contractor.created_at >= month_ago).count()
+    contractor_agg = Contractor.query.with_entities(
+        func.count().label('total'),
+        func.count(case((Contractor.status == 'active', 1))).label('active'),
+        func.count(case((Contractor.status == 'archived', 1))).label('archived'),
+        func.count(case((Contractor.created_at >= month_ago, 1))).label('new'),
+    ).one()
+    contractors_total = contractor_agg.total
+    contractors_active = contractor_agg.active
+    contractors_archived = contractor_agg.archived
+    contractors_new = contractor_agg.new
     contractors_preview = (Contractor.query
                            .order_by(Contractor.full_name.asc())
                            .limit(5).all())
@@ -87,21 +97,28 @@ def index():
     if not is_admin:
         contracts_q = contracts_q.filter(
             Client.responsible_id == current_user.id)
-    contracts_total = contracts_q.count()
-    contracts_draft = contracts_q.filter(Contract.status == 'draft').count()
-    contracts_active = contracts_q.filter(Contract.status == 'active').count()
-    contracts_closed = contracts_q.filter(Contract.status == 'closed').count()
-    contracts_processed = contracts_q.filter(
-        Contract.processed.is_(True)).count()
-    contracts_active_amount = (contracts_q
-                               .filter(Contract.status == 'active')
-                               .with_entities(
-                                   func.coalesce(func.sum(Contract.amount), 0))
-                               .scalar())
+    contract_agg = contracts_q.with_entities(
+        func.count().label('total'),
+        func.count(case((Contract.status == 'draft', 1))).label('draft'),
+        func.count(case((Contract.status == 'active', 1))).label('active'),
+        func.count(case((Contract.status == 'closed', 1))).label('closed'),
+        func.count(case((Contract.processed.is_(True), 1))).label('processed'),
+        func.coalesce(func.sum(case(
+            (Contract.status == 'active', Contract.amount), else_=0)), 0
+        ).label('active_amount'),
+    ).one()
+    contracts_total = contract_agg.total
+    contracts_draft = contract_agg.draft
+    contracts_active = contract_agg.active
+    contracts_closed = contract_agg.closed
+    contracts_processed = contract_agg.processed
+    contracts_active_amount = contract_agg.active_amount
     contracts_preview = (contracts_q
                          .outerjoin(
                              Contractor,
                              Contract.contractor_id == Contractor.id)
+                         .options(joinedload(Contract.client),
+                                  joinedload(Contract.contractor))
                          .order_by(CONTRACT_STATUS_ORDER,
                                    Contract.signed_date.desc().nullslast(),
                                    Contract.number.asc())
@@ -124,11 +141,17 @@ def index():
     if not is_admin:
         documents_q = documents_q.filter(
             Client.responsible_id == current_user.id)
-    documents_total = documents_q.count()
-    document_counts = {label: documents_q.filter(_status_in(label)).count()
-                       for label in DOCUMENT_STATUSES}
-    documents_processed = documents_q.filter(
-        Document.processed.is_(True)).count()
+    status_labels = list(DOCUMENT_STATUSES)
+    document_agg = documents_q.with_entities(
+        func.count().label('total'),
+        *[func.count(case((_status_in(label), 1))).label(f'status_{i}')
+          for i, label in enumerate(status_labels)],
+        func.count(case((Document.processed.is_(True), 1))).label('processed'),
+    ).one()
+    documents_total = document_agg.total
+    document_counts = {label: getattr(document_agg, f'status_{i}')
+                       for i, label in enumerate(status_labels)}
+    documents_processed = document_agg.processed
     documents_preview = (documents_q
                          .order_by(DOCUMENT_STATUS_ORDER,
                                    Document.doc_date.desc().nullslast(),
@@ -152,15 +175,21 @@ def index():
     tasks_q = Task.query
     if not is_admin:
         tasks_q = tasks_q.filter(Task.assignee_id == current_user.id)
-    tasks_total = tasks_q.count()
-    tasks_new = tasks_q.filter(Task.status == Task.STATUS_NEW).count()
-    tasks_in_progress = tasks_q.filter(
-        Task.status == Task.STATUS_IN_PROGRESS).count()
-    tasks_done = tasks_q.filter(Task.status == Task.STATUS_DONE).count()
-    tasks_overdue = tasks_q.filter(
-        Task.status != Task.STATUS_DONE,
-        Task.due_date.isnot(None),
-        Task.due_date < today).count()
+    task_agg = tasks_q.with_entities(
+        func.count().label('total'),
+        func.count(case((Task.status == Task.STATUS_NEW, 1))).label('new'),
+        func.count(case((Task.status == Task.STATUS_IN_PROGRESS, 1))).label('in_progress'),
+        func.count(case((Task.status == Task.STATUS_DONE, 1))).label('done'),
+        func.count(case((
+            (Task.status != Task.STATUS_DONE)
+            & Task.due_date.isnot(None)
+            & (Task.due_date < today), 1))).label('overdue'),
+    ).one()
+    tasks_total = task_agg.total
+    tasks_new = task_agg.new
+    tasks_in_progress = task_agg.in_progress
+    tasks_done = task_agg.done
+    tasks_overdue = task_agg.overdue
     tasks_preview = (tasks_q
                      .order_by(TASK_STATUS_ORDER,
                                Task.priority.asc().nullslast(),

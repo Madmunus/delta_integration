@@ -34,10 +34,14 @@ def _would_lose_last_admin(user, new_role: str, new_active: bool) -> bool:
 def list_users():
     """Список пользователей системы."""
     _admin_required()
-    # Сначала руководители, затем сотрудники;
-    # внутри каждой группы — по фамилии (ФИО начинается с фамилии) по возрастанию
+    # Сначала руководители, затем активные пользователи, затем отключённые;
+    # внутри каждой группы — по ФИО (ФИО начинается с фамилии) по возрастанию
     users = User.query.order_by(
-        case((User.role == 'admin', 0), else_=1),
+        case(
+            (User.role == 'admin', 0),
+            (User.is_active_flag.is_(True), 1),
+            else_=2,
+        ),
         User.fio.asc(),
     ).all()
     return render_template('users/list.html', users=users, users_total=len(users))

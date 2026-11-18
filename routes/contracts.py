@@ -3,6 +3,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
+from sqlalchemy.orm import contains_eager, joinedload
 
 from engine.dates import apply_date_range
 from engine.forms import ContractForm
@@ -39,7 +40,10 @@ SORTABLE_COLUMNS = {
 
 def _get_visible_contract(contract_id):
     """Договор, доступный текущему пользователю (сотрудник — только свои)."""
-    contract = Contract.query.get_or_404(contract_id)
+    contract = (Contract.query
+                .options(joinedload(Contract.client),
+                         joinedload(Contract.contractor))
+                .filter(Contract.id == contract_id).first_or_404())
     if not current_user.is_admin and contract.client.responsible_id != current_user.id:
         abort(403)
     return contract
@@ -57,8 +61,12 @@ def _visible_clients():
 @login_required
 def list_contracts():
     # Контрагент нужен и для поиска, и для сортировки по столбцу
+    # JOIN уже есть в запросе: contains_eager заполняет связи без
+    # дополнительных SELECT на каждую строку таблицы.
     q = (Contract.query.join(Client)
-         .outerjoin(Contractor, Contract.contractor_id == Contractor.id))
+         .outerjoin(Contractor, Contract.contractor_id == Contractor.id)
+         .options(contains_eager(Contract.client),
+                  contains_eager(Contract.contractor)))
     if not current_user.is_admin:
         q = q.filter(Client.responsible_id == current_user.id)
 

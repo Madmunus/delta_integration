@@ -5,6 +5,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
+from sqlalchemy.orm import contains_eager, joinedload
 
 from engine.dates import apply_date_range
 from engine.forms import TaskForm
@@ -56,7 +57,9 @@ def list_tasks():
     # Клиент и исполнитель нужны и для поиска, и для сортировки по столбцам
     q = (_task_filter(Task.query)
          .outerjoin(Client, Task.client_id == Client.id)
-         .outerjoin(User, Task.assignee_id == User.id))
+         .outerjoin(User, Task.assignee_id == User.id)
+         .options(contains_eager(Task.client),
+                  contains_eager(Task.assignee)))
     status = (request.args.get('status') or '').strip()
     # Старый параметр «Просроченные» поддерживается как псевдостатус
     if not status and request.args.get('overdue') == '1':
@@ -118,7 +121,9 @@ def list_tasks():
     # затем приоритет (Высокий → Средний → Низкий), затем срок по возрастанию.
     sort = request.args.get('sort') or None
     direction = request.args.get('dir') or None
-    if sort not in SORTABLE_COLUMNS:
+    # Сотруднику колонка «Исполнитель» не показывается — не даём и сортировать по ней.
+    if sort not in SORTABLE_COLUMNS or (sort == 'assignee'
+                                        and not current_user.is_admin):
         sort = None
         direction = None
     elif direction not in ('asc', 'desc'):
@@ -155,7 +160,9 @@ def list_tasks():
 @login_required
 def detail(task_id):
     """Карточка просмотра задачи."""
-    task = Task.query.get_or_404(task_id)
+    task = (Task.query
+            .options(joinedload(Task.client), joinedload(Task.assignee))
+            .filter(Task.id == task_id).first_or_404())
     if not current_user.is_admin and task.assignee_id != current_user.id:
         abort(403)
     return render_template('tasks/detail.html', task=task)
@@ -165,7 +172,10 @@ def detail(task_id):
 @bp.route('/tasks/<int:task_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_task(task_id=None):
-    task = Task.query.get_or_404(task_id) if task_id else Task()
+    task = ((Task.query
+             .options(joinedload(Task.client), joinedload(Task.assignee))
+             .filter(Task.id == task_id).first_or_404())
+            if task_id else Task())
     if task_id:
         if not current_user.is_admin and task.assignee_id != current_user.id:
             abort(403)

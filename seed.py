@@ -262,16 +262,20 @@ _STATUS_1C = {'active': 'Действует', 'closed': 'Закрыт', 'draft':
 
 def _seed_users():
     """Создать недостающих демо-пользователей и обновить их пароли."""
+    existing = {u.email: u for u in User.query.all()}
     users = {}
     created = 0
     for email, fio, role, password, is_active in USERS:
-        user = User.query.filter_by(email=email).first()
+        user = existing.get(email)
         if user is None:
             user = User(email=email, fio=fio, role=role,
                         is_active_flag=is_active)
             db.session.add(user)
             created += 1
-        user.set_password(password)
+            user.set_password(password)
+        elif not user.check_password(password):
+            # Хеширование дорого: пересчитываем только при изменении пароля.
+            user.set_password(password)
         users[email] = user
     db.session.flush()
     return [users[email] for email, *_ in USERS], created
@@ -288,10 +292,11 @@ def _seed_setting():
 
 def _seed_clients(user_list):
     """Создать недостающих клиентов; существующие записи не изменяются."""
+    existing = {c.external_ref: c for c in Client.query.all()}
     clients = []
     created = 0
     for ref, name, inn, kpp, status, resp_idx, added, notes in CLIENTS:
-        client = Client.query.filter_by(external_ref=ref).first()
+        client = existing.get(ref)
         if client is None:
             client = Client(
                 external_ref=ref,
@@ -308,10 +313,11 @@ def _seed_clients(user_list):
 
 def _seed_contractors():
     """Создать недостающих контрагентов; существующие не изменяются."""
+    existing = {c.external_ref: c for c in Contractor.query.all()}
     contractors = []
     created = 0
     for ref, full_name, inn, kpp, notes in CONTRACTORS:
-        contractor = Contractor.query.filter_by(external_ref=ref).first()
+        contractor = existing.get(ref)
         if contractor is None:
             contractor = Contractor(external_ref=ref, full_name=full_name,
                                     inn=inn, kpp=kpp, notes=notes)
@@ -324,9 +330,10 @@ def _seed_contractors():
 
 def _seed_deadlines():
     """Создать недостающие виды отчётности (по коду)."""
+    existing = {d.code for d in ReportingDeadline.query.all()}
     created = 0
     for name, code, periodicity, due_day, offset, category in DEADLINES:
-        if ReportingDeadline.query.filter_by(code=code).first() is not None:
+        if code in existing:
             continue
         db.session.add(ReportingDeadline(
             name=name, code=code, periodicity=periodicity,
@@ -338,11 +345,12 @@ def _seed_deadlines():
 
 def _seed_contracts(clients, contractors):
     """Создать недостающие договоры (по external_ref)."""
+    existing = {c.external_ref for c in Contract.query.all()}
     created = 0
     for idx, (number, client_idx, contractor_idx, description,
               amount, status, start, end) in enumerate(CONTRACTS, start=1):
         ref = f'aaaaaaaa-0000-0000-0000-{idx:012d}'
-        if Contract.query.filter_by(external_ref=ref).first() is not None:
+        if ref in existing:
             continue
         contractor = contractors[contractor_idx - 1]
         db.session.add(Contract(
@@ -360,13 +368,14 @@ def _seed_contracts(clients, contractors):
 
 def _seed_documents(clients, contractors):
     """Создать недостающие документы и дозаполнить ссылки на объекты в 1С."""
+    existing = {d.external_ref: d for d in Document.query.all()}
     created = 0
     for (number, doc_type, doc_date, status, client_idx, contractor_idx,
          ref, external_url) in DOCUMENTS:
-        existing = Document.query.filter_by(external_ref=ref).first()
-        if existing is not None:
-            if not existing.external_url:
-                existing.external_url = external_url
+        document = existing.get(ref)
+        if document is not None:
+            if not document.external_url:
+                document.external_url = external_url
             continue
         contractor = (contractors[contractor_idx - 1]
                       if contractor_idx else None)
@@ -415,12 +424,13 @@ def _seed_tasks(clients):
     active_clients = [c for c in clients if c.status == 'active'] or clients
     fallback_id = (User.query.filter_by(is_active_flag=True)
                    .order_by(User.id).first().id)
+    existing = {t.title for t in Task.query.all()}
     statuses = ('new', 'in_progress', 'done')
     for i in range(DEMO_TASKS_TOTAL):
         client = active_clients[i % len(active_clients)]
         title = (f'{_TASK_TOPICS[i % len(_TASK_TOPICS)]} — '
                  f'{client.name} (демо {i + 1:03d})')
-        if Task.query.filter_by(title=title).first() is not None:
+        if title in existing:
             continue
         # Правило системы: задача не может быть без исполнителя
         assignee_id = client.responsible_id or fallback_id

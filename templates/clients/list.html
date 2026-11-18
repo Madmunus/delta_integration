@@ -4,6 +4,7 @@
 {% from '_sort.html' import sort_link %}
 
 {% block content %}
+{% set col_count = 7 if current_user.is_admin else 6 %}
 {% set sort_params = dict(q=search, status=status, responsible=responsible,
                           date_range=date_range,
                           page=pagination.page) %}
@@ -62,7 +63,10 @@
       <th>{{ sort_link('clients.list_clients', 'name', 'Наименование', sort, direction, sort_params) }}</th>
       <th>{{ sort_link('clients.list_clients', 'inn', 'ИНН', sort, direction, sort_params) }}</th>
       <th>{{ sort_link('clients.list_clients', 'status', 'Статус', sort, direction, sort_params) }}</th>
+      {% if current_user.is_admin %}
       <th>{{ sort_link('clients.list_clients', 'responsible', 'Ответственный', sort, direction, sort_params) }}</th>
+      {% endif %}
+      <th>Заметки</th>
       <th>{{ sort_link('clients.list_clients', 'created_at', 'Дата создания', sort, direction, sort_params) }}</th>
       <th class="text-end"></th>
     </tr>
@@ -76,7 +80,10 @@
         {% if c.status == 'active' %}<span class="badge text-bg-success">активный</span>
         {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
       </td>
+      {% if current_user.is_admin %}
       <td>{{ c.responsible.fio if c.responsible else '—' }}</td>
+      {% endif %}
+      <td class="small text-muted" title="{{ c.notes }}">{{ c.notes|truncate(60) if c.notes else '—' }}</td>
       <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
       <td class="text-end text-nowrap">
         <a class="btn btn-sm btn-outline-secondary"
@@ -92,9 +99,12 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="text-muted">Клиенты не найдены</td></tr>
+    <tr><td colspan="{{ col_count }}" class="text-muted">Клиенты не найдены</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

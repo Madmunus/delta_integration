@@ -5,21 +5,21 @@
 <div class="mb-4">
   <h1 class="h4 mb-1">Отчёт по договорам</h1>
   <p class="text-muted mb-0">
-    Договоры сгруппированы по клиентам: количество по статусам и суммы.
-    Суммы указаны в рублях. У архивных клиентов — только завершённые
-    договоры.
+    Договоры сгруппированы по клиентам: количество по статусам,
+    признаку «Обработан» и суммы. Суммы указаны в рублях.
+    У архивных клиентов — только завершённые договоры.
   </p>
 </div>
 <div class="row g-3 mb-4">
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
        href="{{ url_for('clients.list_clients') }}"><div class="card-body">
     <div class="display-6">{{ totals.clients }}</div>
-    <div class="text-muted">клиентов с договорами</div>
+    <div class="text-muted">клиентов</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
        href="{{ url_for('contracts.list_contracts') }}"><div class="card-body">
     <div class="display-6">{{ totals.contracts }}</div>
-    <div class="text-muted">всего договоров</div>
+    <div class="text-muted">всего</div>
   </div></a></div>
   <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
        href="{{ url_for('contracts.list_contracts', status='draft') }}"><div class="card-body">
@@ -36,6 +36,11 @@
     <div class="display-6 text-secondary">{{ totals.closed }}</div>
     <div class="text-muted">завершённых</div>
   </div></a></div>
+  <div class="col-6 col-md"><a class="card delta-report-card text-center text-decoration-none text-reset"
+       href="{{ url_for('contracts.list_contracts', processed='yes') }}"><div class="card-body">
+    <div class="display-6 text-info">{{ totals.processed }}</div>
+    <div class="text-muted">обработано</div>
+  </div></a></div>
 </div>
 
 <div class="table-responsive">
@@ -46,6 +51,8 @@
     <th class="text-end">Проект</th>
     <th class="text-end">Действующие</th>
     <th class="text-end">Завершённые</th>
+    <th class="text-end">Обработано</th>
+    <th class="text-end">Не обработано</th>
     <th class="text-end">Сумма действующих</th>
     <th class="text-end">Сумма всех</th>
     <th class="text-end"></th>
@@ -65,6 +72,10 @@
         href="{{ url_for('contracts.list_contracts', client=g.client.id, status='active') }}">{{ g.counts.get('active', 0) }}</a></td>
       <td class="text-end"><a
         href="{{ url_for('contracts.list_contracts', client=g.client.id, status='closed') }}">{{ g.counts.get('closed', 0) }}</a></td>
+      <td class="text-end text-nowrap"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id, processed='yes') }}">{{ g.processed }}</a></td>
+      <td class="text-end text-nowrap"><a
+        href="{{ url_for('contracts.list_contracts', client=g.client.id, processed='no') }}">{{ g.unprocessed }}</a></td>
       <td class="text-end text-nowrap">{{ g.amount_active|money }}</td>
       <td class="text-end text-nowrap">{{ g.amount_total|money }}</td>
       <td class="text-end">
@@ -80,7 +91,7 @@
       </td>
     </tr>
     <tr class="delta-report-detail">
-      <td colspan="8">
+      <td colspan="10">
         <div class="collapse" id="client-contracts-{{ g.client.id }}">
           <div class="border rounded-3 bg-light-subtle p-2 m-1">
             <table class="table table-sm align-middle mb-0">
@@ -114,7 +125,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="text-muted">Договоров нет</td></tr>
+    <tr><td colspan="10" class="text-muted">Договоров нет</td></tr>
   {% endfor %}
   </tbody>
 </table>

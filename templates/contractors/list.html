@@ -67,7 +67,7 @@
         {% if c.status == 'active' %}<span class="badge text-bg-success">активный</span>
         {% else %}<span class="badge text-bg-secondary">архивный</span>{% endif %}
       </td>
-      <td>{{ c.notes|truncate(80) if c.notes else '—' }}</td>
+      <td  class="small text-muted" title="{{ c.notes }}">{{ c.notes|truncate(80) if c.notes else '—' }}</td>
       <td class="text-nowrap">{{ c.created_at|dtfull }}</td>
       <td class="text-end text-nowrap">
         <a class="btn btn-sm btn-outline-secondary"
@@ -84,4 +84,7 @@
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

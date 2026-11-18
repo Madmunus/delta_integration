@@ -3,12 +3,16 @@ from flask import (Blueprint, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload
 
 from engine.dates import apply_date_range
 from engine.forms import ContractorForm
 from engine.models import Client, Contract, Contractor, Document, db
 
 bp = Blueprint('contractors', __name__)
+
+# Сколько строк дочерних реестров показывать в карточке контрагента
+DETAIL_ROWS = 10
 
 # Сортируемые столбцы реестра: имя параметра -> колонка/выражение
 SORTABLE_COLUMNS = {
@@ -77,12 +81,15 @@ def detail(contractor_id):
     Договоры и документы показываются только по клиентам, доступным
     текущему пользователю (ФТ-1).
     """
-    contractor = Contractor.query.get_or_404(contractor_id)
+    contractor = (Contractor.query
+                  .filter(Contractor.id == contractor_id).first_or_404())
 
-    contracts_q = Contract.query.filter(
-        Contract.contractor_id == contractor.id)
-    documents_q = Document.query.filter(
-        Document.contractor_id == contractor.id)
+    contracts_q = (Contract.query
+                   .options(joinedload(Contract.client))
+                   .filter(Contract.contractor_id == contractor.id))
+    documents_q = (Document.query
+                   .options(joinedload(Document.client))
+                   .filter(Document.contractor_id == contractor.id))
     if not current_user.is_admin:
         contracts_q = (contracts_q
                        .join(Client, Contract.client_id == Client.id)
@@ -91,11 +98,17 @@ def detail(contractor_id):
                        .join(Client, Document.client_id == Client.id)
                        .filter(Client.responsible_id == current_user.id))
 
-    contracts = contracts_q.order_by(Contract.signed_date.desc()).all()
-    documents = (documents_q
-                 .order_by(Document.doc_date.desc().nullslast()).all())
+    contracts_q = contracts_q.order_by(Contract.signed_date.desc())
+    documents_q = documents_q.order_by(Document.doc_date.desc().nullslast())
+    contracts_total = contracts_q.count()
+    documents_total = documents_q.count()
+    contracts = contracts_q.limit(DETAIL_ROWS).all()
+    documents = documents_q.limit(DETAIL_ROWS).all()
     return render_template('contractors/detail.html', contractor=contractor,
-                           contracts=contracts, documents=documents)
+                           contracts=contracts, documents=documents,
+                           contracts_total=contracts_total,
+                           documents_total=documents_total,
+                           detail_rows=DETAIL_ROWS)
 
 
 @bp.route('/contractors/<int:contractor_id>/edit', methods=['GET', 'POST'])

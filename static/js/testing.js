@@ -14,6 +14,11 @@
   var batchRunning = false;
   var runInProgress = false;
 
+  var STEP_BATCH = 4;          // шагов за один запрос при отрисовке
+  var POLL_TIMEOUT_MS = 120000;// предел ожидания фонового run-all
+  var POLL_INITIAL_MS = 400;   // начальная пауза между опросами
+  var POLL_MAX_MS = 2000;      // максимальная пауза (backoff)
+
   function setAllRunButtons(disabled) {
     document.querySelectorAll('.js-run-btn').forEach(function (btn) {
       btn.disabled = disabled;
@@ -57,6 +62,68 @@
     }
     if (!data) throw new Error('сервер вернул не JSON');
     return data;
+  }
+
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function nextFrame() {
+    return new Promise(function (resolve) {
+      if (window.requestAnimationFrame) requestAnimationFrame(resolve);
+      else setTimeout(resolve, 0);
+    });
+  }
+
+  /* Несколько шагов одним параллельным пакетом: порядок сохраняем сами. */
+  async function loadStepBatch(stepUrl, start, count) {
+    var indexes = [];
+    for (var i = start; i < start + count; i++) indexes.push(i);
+    var replies = await Promise.all(indexes.map(function (index) {
+      return requestJSON(stepUrl + '?index=' + index);
+    }));
+    return replies.map(function (reply) { return reply.step; });
+  }
+
+  function appendSteps(tbody, steps) {
+    var fragment = document.createDocumentFragment();
+    steps.forEach(function (step) {
+      var tr = el('tr', step.status === 'failed' ? 'table-danger' : '');
+      tr.classList.add('delta-step-enter');
+
+      tr.appendChild(el('td', '', step.name));
+      tr.appendChild(el('td', 'text-muted', step.expected));
+
+      var actual = el('td');
+      actual.appendChild(document.createTextNode(step.actual));
+      if (step.details) {
+        actual.appendChild(el('pre', 'small text-muted mb-0 mt-2', step.details));
+      }
+      tr.appendChild(actual);
+
+      var verdict = el('td', 'text-center');
+      verdict.appendChild(el('span',
+        'badge ' + (step.status === 'passed' ? 'text-bg-success' : 'text-bg-danger'),
+        step.status === 'passed' ? 'OK' : 'FAIL'));
+      tr.appendChild(verdict);
+
+      fragment.appendChild(tr);
+    });
+    // Ленивый рендер: одна вставка на пакет вместо вставки каждой строки.
+    tbody.appendChild(fragment);
+  }
+
+  async function renderSteps(view, stepUrl) {
+    var drawn = 0;
+    while (drawn < view.total) {
+      var count = Math.min(STEP_BATCH, view.total - drawn);
+      var steps = await loadStepBatch(stepUrl, drawn, count);
+      appendSteps(view.tbody, steps);
+      drawn += steps.length;
+      view.progress.textContent = 'шагов: ' + drawn + ' из ' + view.total;
+      await nextFrame();
+    }
+    if (!view.total) view.progress.textContent = 'шагов нет';
   }
 
   function setBusy(card, busy) {
@@ -167,34 +234,26 @@
     };
   }
 
-  function appendStep(tbody, step) {
-    var tr = el('tr', step.status === 'failed' ? 'table-danger' : '');
-    tr.classList.add('delta-step-enter');
+  function renderConclusion(view, summary) {
+    view.conclusion.className = 'alert mb-0 py-2 js-conclusion ' +
+      (summary.status === 'passed' ? 'alert-success' : 'alert-danger');
+    clear(view.conclusion);
+    view.conclusion.appendChild(el('strong', '', 'Результат:'));
+    view.conclusion.appendChild(
+      document.createTextNode(' ' + summary.conclusion));
+  }
 
-    tr.appendChild(el('td', '', step.name));
-    tr.appendChild(el('td', 'text-muted', step.expected));
-
-    var actual = el('td');
-    actual.appendChild(document.createTextNode(step.actual));
-    if (step.details) {
-      actual.appendChild(el('pre', 'small text-muted mb-0 mt-2', step.details));
-    }
-    tr.appendChild(actual);
-
-    var verdict = el('td', 'text-center');
-    verdict.appendChild(el('span',
-      'badge ' + (step.status === 'passed' ? 'text-bg-success' : 'text-bg-danger'),
-      step.status === 'passed' ? 'OK' : 'FAIL'));
-    tr.appendChild(verdict);
-
-    tbody.appendChild(tr);
+  async function loadSteps(card, summary) {
+    var view = renderShell(card, summary);
+    setStatus(card, summary);
+    await renderSteps(view, card.dataset.stepUrl);
+    renderConclusion(view, summary);
   }
 
   /* Запуск одного сценария: сводка, затем по одному запросу на каждый шаг. */
   async function runScenario(card) {
     var form = card.querySelector('.js-run-form');
     var box = card.querySelector('.js-result');
-    var stepUrl = card.dataset.stepUrl;
 
     runInProgress = true;
     setBusy(card, true);
@@ -211,12 +270,7 @@
       view = renderShell(card, summary);
       setStatus(card, summary);
 
-      for (var i = 0; i < summary.total_steps; i++) {
-        var data = await requestJSON(stepUrl + '?index=' + i);
-        appendStep(view.tbody, data.step);
-        view.progress.textContent = 'шагов: ' + (i + 1) + ' из ' + data.total;
-      }
-      if (!summary.total_steps) view.progress.textContent = 'шагов нет';
+      await renderSteps(view, stepUrl);
 
       view.conclusion.className = 'alert mb-0 py-2 js-conclusion ' +
         (summary.status === 'passed' ? 'alert-success' : 'alert-danger');
@@ -241,28 +295,68 @@
     var cards = Array.prototype.slice.call(
       document.querySelectorAll('[data-scenario]'));
     var summaryBox = document.getElementById('testing-summary');
+    var runAllForm = document.getElementById('run-all-form');
 
     batchRunning = true;
     setAllRunButtons(true);
     summaryBox.className = 'alert alert-info';
     summaryBox.textContent = 'Выполняются сценарии: 0 из ' + cards.length + '…';
 
-    var passed = 0;
     try {
-      for (var i = 0; i < cards.length; i++) {
-        summaryBox.textContent = 'Выполняются сценарии: ' +
-          (i + 1) + ' из ' + cards.length + '…';
-        if (await runScenario(cards[i])) passed += 1;
+      var response = await requestJSON(runAllForm.action, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF_TOKEN }
+      });
+      var data = response;
+
+      // Живое приложение возвращает job_id: сценарии выполняются в фоне.
+      if (response.job_id && response.status === 'running') {
+        var deadline = Date.now() + POLL_TIMEOUT_MS;
+        var pause = POLL_INITIAL_MS;
+        while (Date.now() < deadline) {
+          await sleep(pause);
+          data = await requestJSON(
+            '/testing/run-all/status/' + encodeURIComponent(response.job_id));
+          if (data.status === 'running') {
+            summaryBox.textContent = 'Выполняются сценарии: ' +
+              (data.completed || 0) + ' из ' + (data.total || cards.length) + '…';
+            // Backoff: реже дёржим сервер при долгом прогоне.
+            pause = Math.min(POLL_MAX_MS, Math.round(pause * 1.5));
+            continue;
+          }
+          if (data.status === 'failed') {
+            throw new Error(data.error || 'фоновый запуск прерван');
+          }
+          break;
+        }
+        if (data.status === 'running') {
+          throw new Error('время ожидания фонового запуска истекло');
+        }
       }
+
+      var passed = 0;
+      var shown = data.scenarios || [];
+      for (var i = 0; i < shown.length; i++) {
+        var card = cards.filter(function (c) {
+          return c.dataset.scenario === shown[i].id;
+        })[0];
+        if (!card) continue;
+        if (shown[i].status === 'passed') passed += 1;
+        await loadSteps(card, shown[i]);
+      }
+
+      var total = data.total !== undefined ? data.total : shown.length;
+      summaryBox.className = 'alert ' +
+        (passed === total ? 'alert-success' : 'alert-danger');
+      summaryBox.textContent = 'Выполнено сценариев: ' + total +
+        ', пройдено: ' + passed;
+    } catch (err) {
+      summaryBox.className = 'alert alert-danger';
+      summaryBox.textContent = 'Не удалось выполнить сценарии: ' + err.message;
     } finally {
       batchRunning = false;
       setAllRunButtons(false);
     }
-
-    summaryBox.className = 'alert ' +
-      (passed === cards.length ? 'alert-success' : 'alert-danger');
-    summaryBox.textContent = 'Выполнено сценариев: ' + cards.length +
-      ', пройдено: ' + passed;
   }
 
   document.querySelectorAll('.js-run-form').forEach(function (form) {

@@ -5,7 +5,8 @@
 {% from 'documents/_status.html' import document_status_badge %}
 {% block content %}
 {% set filter_params = dict(q=search, status=status, processed=processed,
-                            client=client_id, date_range=date_range) %}
+                            client=client_id, contractor=contractor_id,
+                            date_range=date_range) %}
 {% set sort_params = dict(filter_params, page=pagination.page) %}
 {% set page_params = dict(filter_params, sort=sort, dir=direction) %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -28,14 +29,6 @@
               onclick="this.form.querySelector('input[name=q]').value=''; this.form.querySelector('input[name=q]').focus();"><i class="fa-solid fa-xmark"></i></button>
     </div>
   </div>
-  <div class="col-6 col-md-3 col-lg-2">
-    <select class="form-select" name="status" title="Статус документа">
-      <option value="">Все статусы</option>
-      {% for s in statuses %}
-      <option value="{{ s }}" {{ 'selected' if status == s }}>{{ s }}</option>
-      {% endfor %}
-    </select>
-  </div>
   {% set date_label = 'Дата' %}
   {% include '_date_range.html' %}
   <div class="col-6 col-md-3 col-lg-2">
@@ -44,6 +37,23 @@
       <option value="">Все клиенты</option>
       {% for c in clients %}
         <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="contractor" aria-label="Контрагент"
+            title="Контрагент">
+      <option value="">Все контрагенты</option>
+      {% for c in contractors %}
+        <option value="{{ c.id }}" {{ 'selected' if contractor_id == c.id }}>{{ c.display_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-3 col-lg-2">
+    <select class="form-select" name="status" title="Статус документа">
+      <option value="">Все статусы</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {{ 'selected' if status == s }}>{{ s }}</option>
       {% endfor %}
     </select>
   </div>
@@ -109,10 +119,13 @@
     </tr>
   {% else %}
     <tr><td colspan="9" class="text-muted">
-      {% if search or status or processed or client_id or date_range %}Документы не найдены{% else %}Документов нет{% endif %}
+      {% if search or status or processed or client_id or contractor_id or date_range %}Документы не найдены{% else %}Документов нет{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/date-range.js') }}"></script>
 {% endblock %}

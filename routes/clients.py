@@ -3,6 +3,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
+from sqlalchemy.orm import joinedload
 
 from engine.dates import apply_date_range
 from engine.forms import ClientForm
@@ -10,6 +11,9 @@ from engine.models import Client, Contract, Document, Task, User, db
 from engine.sync import sync_contracts
 
 bp = Blueprint('clients', __name__)
+
+# Сколько строк дочерних реестров показывать в карточке клиента
+DETAIL_ROWS = 10
 
 
 def visible_clients_query():
@@ -33,7 +37,8 @@ SORTABLE_COLUMNS = {
 @bp.route('/clients')
 @login_required
 def list_clients():
-    q = visible_clients_query()
+    # Ответственный выводится в каждой строке реестра — грузим его сразу.
+    q = visible_clients_query().options(joinedload(Client.responsible))
 
     # Поиск и фильтрация (ФТ-2)
     search = (request.args.get('q') or '').strip()
@@ -63,7 +68,9 @@ def list_clients():
     # затем архивные, внутри группы — по наименованию.
     sort = request.args.get('sort') or None
     direction = request.args.get('dir') or None
-    if sort not in SORTABLE_COLUMNS:
+    # Сотруднику колонка «Ответственный» не показывается — не даём и сортировать по ней.
+    if sort not in SORTABLE_COLUMNS or (sort == 'responsible'
+                                        and not current_user.is_admin):
         sort = None
         direction = None
     elif direction not in ('asc', 'desc'):
@@ -98,16 +105,43 @@ def list_clients():
 @bp.route('/clients/<int:client_id>')
 @login_required
 def detail(client_id):
-    client = Client.query.get_or_404(client_id)
+    # Query.get() не применяет loader options, поэтому используем filter().
+    client = (Client.query.options(joinedload(Client.responsible))
+              .filter(Client.id == client_id).first_or_404())
     # ФТ-1: сотрудник не видит чужих клиентов
     if not current_user.is_admin and client.responsible_id != current_user.id:
         abort(403)
-    contracts = client.contracts.order_by(Contract.signed_date.desc()).all()
-    tasks = client.tasks.order_by(Task.due_date.asc().nullslast()).all()
-    documents = client.documents.order_by(Document.doc_date.desc().nullslast()).all()
+    # dynamic-связи нельзя загрузить joinedload, поэтому запрашиваем
+    # дочерние реестры отдельно и сразу подтягиваем их связи.
+    # В карточке показываем первые DETAIL_ROWS строк; полный список —
+    # в соответствующем реестре со ссылкой на этого клиента.
+    contracts_q = (Contract.query
+                   .options(joinedload(Contract.client),
+                            joinedload(Contract.contractor))
+                   .filter(Contract.client_id == client_id)
+                   .order_by(Contract.signed_date.desc()))
+    tasks_q = (Task.query
+               .options(joinedload(Task.client), joinedload(Task.assignee))
+               .filter(Task.client_id == client_id)
+               .order_by(Task.due_date.asc().nullslast()))
+    documents_q = (Document.query
+                   .options(joinedload(Document.client),
+                            joinedload(Document.contractor))
+                   .filter(Document.client_id == client_id)
+                   .order_by(Document.doc_date.desc().nullslast()))
+    contracts_total = contracts_q.count()
+    tasks_total = tasks_q.count()
+    documents_total = documents_q.count()
+    contracts = contracts_q.limit(DETAIL_ROWS).all()
+    tasks = tasks_q.limit(DETAIL_ROWS).all()
+    documents = documents_q.limit(DETAIL_ROWS).all()
     return render_template('clients/detail.html', client=client,
                            contracts=contracts, tasks=tasks,
-                           documents=documents)
+                           documents=documents,
+                           contracts_total=contracts_total,
+                           tasks_total=tasks_total,
+                           documents_total=documents_total,
+                           detail_rows=DETAIL_ROWS)
 
 
 @bp.route('/clients/<int:client_id>/edit', methods=['GET', 'POST'])

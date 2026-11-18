@@ -2,6 +2,7 @@
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
+from sqlalchemy import func
 
 from engine.forms import OneCSettingForm
 from engine.models import Client, Contractor, Document, OneCSetting, db
@@ -36,14 +37,27 @@ def settings():
         flash('Настройка подключения к базе 1С:Предприятие сохранена', 'success')
         return redirect(url_for('bases.settings'))
 
+    # Четыре счётчика — одним запросом (скалярные подзапросы не
+    # умножают строки друг на друга, в отличие от CROSS JOIN).
+    counts = db.session.query(
+        db.select(func.count()).select_from(Contractor)
+        .scalar_subquery().label('contractors_total'),
+        db.select(func.count()).select_from(Client)
+        .scalar_subquery().label('clients_total'),
+        db.select(func.count()).select_from(Document)
+        .scalar_subquery().label('documents_total'),
+        db.select(func.count()).select_from(Client)
+        .where(Client.odata_url != '')
+        .scalar_subquery().label('clients_with_odata'),
+    ).one()
     return render_template(
         'bases/list.html',
         form=form,
         setting=setting,
-        contractors_total=Contractor.query.count(),
-        clients_total=Client.query.count(),
-        documents_total=Document.query.count(),
-        clients_with_odata=Client.query.filter(Client.odata_url != '').count(),
+        contractors_total=counts.contractors_total,
+        clients_total=counts.clients_total,
+        documents_total=counts.documents_total,
+        clients_with_odata=counts.clients_with_odata,
     )
 
 

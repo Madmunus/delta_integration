@@ -10,7 +10,7 @@
 поле «Вид документа» вычисляется из имени сущности.
 """
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from engine.models import (Client, Contractor, Contract, Document,
@@ -75,8 +75,29 @@ def _map_contract_status(raw: str) -> str:
     return 'draft'
 
 
+def _index_by(rows, field: str) -> dict:
+    """Индекс ORM-объектов по непустому полю (одна выборка вместо N)."""
+    return {getattr(row, field): row for row in rows if getattr(row, field)}
+
+
+def _index_by_refs(model, refs, chunk_size: int = 500) -> dict:
+    """Индекс только по интересующим external_ref (порциями по 500).
+
+    Полная выборка справочника при каждом импорте документов лишняя:
+    из 1С за раз приходит ограниченный набор ссылок. Порции нужны,
+    чтобы не упираться в лимит SQL-параметров SQLite/PostgreSQL.
+    """
+    values = sorted({_clean(ref) for ref in refs if _clean(ref)})
+    index = {}
+    for start in range(0, len(values), chunk_size):
+        chunk = values[start:start + chunk_size]
+        for row in model.query.filter(model.external_ref.in_(chunk)).all():
+            index[row.external_ref] = row
+    return index
+
+
 # --------------------------------------------------------------- организации
-def _upsert_client(row: dict) -> str:
+def _upsert_client(row: dict, by_ref: dict, by_inn: dict) -> str:
     """Создать или обновить клиента из Catalog_Организации."""
     ref_key = _clean(row.get('Ref_Key'))
     inn = _clean(row.get('ИНН'))
@@ -84,11 +105,9 @@ def _upsert_client(row: dict) -> str:
     name = name or '(без наименования)'
     status = 'archived' if _is_deletion_mark(row.get('DeletionMark')) else 'active'
 
-    client = None
-    if ref_key:
-        client = Client.query.filter_by(external_ref=ref_key).first()
+    client = (by_ref.get(ref_key) if ref_key else None)
     if client is None and inn:
-        client = Client.query.filter_by(inn=inn).first()
+        client = by_inn.get(inn)
 
     if client is None:
         client = Client(name=name, inn=inn or None, status=status,
@@ -103,11 +122,17 @@ def _upsert_client(row: dict) -> str:
         if ref_key:
             client.external_ref = ref_key
         action = 'updated'
+    # Обновляем индексы: повторные Ref_Key/ИНН в ответе 1С должны
+    # попадать в ту же запись, а не создавать дубликаты.
+    if ref_key:
+        by_ref[ref_key] = client
+    if inn:
+        by_inn[inn] = client
     return action
 
 
 # ----------------------------------------------------------------- контрагенты
-def _upsert_contractor(row: dict) -> str:
+def _upsert_contractor(row: dict, by_ref: dict, by_inn: dict) -> str:
     """Создать или обновить контрагента из Catalog_Контрагенты.
 
     Статус (``Contractor.status``) вычисляется из ``DeletionMark`` так же,
@@ -122,11 +147,9 @@ def _upsert_contractor(row: dict) -> str:
     kpp = _clean(row.get('КПП'))
     status = 'archived' if _is_deletion_mark(row.get('DeletionMark')) else 'active'
 
-    contractor = None
-    if ref_key:
-        contractor = Contractor.query.filter_by(external_ref=ref_key).first()
+    contractor = (by_ref.get(ref_key) if ref_key else None)
     if contractor is None and inn:
-        contractor = Contractor.query.filter_by(inn=inn).first()
+        contractor = by_inn.get(inn)
 
     if contractor is None:
         contractor = Contractor(external_ref=ref_key or None)
@@ -139,6 +162,10 @@ def _upsert_contractor(row: dict) -> str:
     contractor.inn = inn or None
     contractor.kpp = kpp or None
     contractor.status = status
+    if ref_key:
+        by_ref[ref_key] = contractor
+    if inn:
+        by_inn[inn] = contractor
     return action
 
 
@@ -170,16 +197,24 @@ def sync_clients() -> dict:
     finally:
         api.close()
 
+    all_clients = Client.query.all()
+    all_contractors = Contractor.query.all()
+    clients_by_ref = _index_by(all_clients, 'external_ref')
+    clients_by_inn = _index_by(all_clients, 'inn')
+    contractors_by_ref = _index_by(all_contractors, 'external_ref')
+    contractors_by_inn = _index_by(all_contractors, 'inn')
+
     for row in organizations:
         try:
-            stats[_upsert_client(row)] += 1
+            stats[_upsert_client(row, clients_by_ref, clients_by_inn)] += 1
         except Exception as exc:  # защита от битых строк
             logger.exception('Ошибка обработки организации: %r', row)
             stats['errors'].append(f'Организация: {exc}')
 
     for row in contractors:
         try:
-            action = _upsert_contractor(row)
+            action = _upsert_contractor(
+                row, contractors_by_ref, contractors_by_inn)
             key = 'contractors_created' if action == 'created' else 'contractors_updated'
             stats[key] += 1
         except Exception as exc:  # защита от битых строк
@@ -199,8 +234,14 @@ def sync_clients() -> dict:
 
 
 # --------------------------------------------------------------------- договоры
-def sync_contracts(client: Client) -> dict:
-    """Загрузить договоры клиента из его базы «1С:Бухгалтерия»."""
+def sync_contracts(client: Client, contracts_by_ref=None,
+                   contractors_by_ref=None) -> dict:
+    """Загрузить договоры клиента из его базы «1С:Бухгалтерия».
+
+    Индексы договоров и контрагентов можно передать из
+    :func:`sync_all_contracts`, чтобы не строить их заново для каждого
+    клиента. Индекс договоров обновляется при создании новых записей.
+    """
     stats = {'created': 0, 'updated': 0, 'errors': []}
     if not client.odata_url:
         stats['errors'].append(
@@ -218,16 +259,19 @@ def sync_contracts(client: Client) -> dict:
     finally:
         api.close()
 
+    if contracts_by_ref is None:
+        contracts_by_ref = _index_by(Contract.query.all(), 'external_ref')
+    if contractors_by_ref is None:
+        contractors_by_ref = _index_by(Contractor.query.all(), 'external_ref')
+
     for row in rows:
         try:
             ref_key = _clean(row.get('Ref_Key'))
             number = _clean(row.get('Наименование')) or '(без номера)'
             contractor_ref = _clean(row.get('Контрагент'))
-            contractor = (Contractor.query.filter_by(external_ref=contractor_ref).first()
-                          if contractor_ref else None)
+            contractor = contractors_by_ref.get(contractor_ref) if contractor_ref else None
 
-            contract = (Contract.query.filter_by(external_ref=ref_key).first()
-                        if ref_key else None)
+            contract = contracts_by_ref.get(ref_key) if ref_key else None
             if contract is None:
                 contract = Contract(number=number, client_id=client.id,
                                     external_ref=ref_key or None,
@@ -236,6 +280,8 @@ def sync_contracts(client: Client) -> dict:
                 action = 'created'
             else:
                 action = 'updated'
+            if ref_key:
+                contracts_by_ref[ref_key] = contract
 
             contract.client_id = client.id
             contract.number = number
@@ -272,9 +318,13 @@ def sync_all_contracts() -> dict:
     """Загрузить договоры по всем клиентам с настроенным подключением."""
     stats = {'clients': 0, 'created': 0, 'updated': 0, 'errors': []}
     clients = Client.query.filter(Client.odata_url != '').order_by(Client.name).all()
+    # Строим индексы один раз на всю операцию: раньше каждый клиент
+    # выбирал все договоры и всех контрагентов заново.
+    contracts_by_ref = _index_by(Contract.query.all(), 'external_ref')
+    contractors_by_ref = _index_by(Contractor.query.all(), 'external_ref')
     for client in clients:
         stats['clients'] += 1
-        result = sync_contracts(client)
+        result = sync_contracts(client, contracts_by_ref, contractors_by_ref)
         stats['created'] += result['created']
         stats['updated'] += result['updated']
         stats['errors'].extend(result['errors'])
@@ -297,6 +347,7 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
 
     Контрагент может быть не указан — тогда contractor_id = NULL.
     Документы с неизвестной организацией (клиентом) пропускаются.
+    По умолчанию запрашиваются документы за ``days`` дней (30).
     Возвращает количество обработанных записей.
     """
     setting = settings or OneCSetting.get()
@@ -304,11 +355,23 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
         return 0
 
     entity_list = list(entities) if entities else list(DOCUMENT_ENTITIES)
+    date_from = (date.today() - timedelta(days=int(days))
+                 if days is not None else None)
     api = client_for_settings(setting)
     try:
-        rows = api.get_documents(entities=entity_list, top=500)
+        rows = api.get_documents(entities=entity_list, top=500,
+                                 date_from=date_from)
     finally:
         api.close()
+
+    # Выбираем только те справочники и документы, ссылки на которые
+    # реально пришли из 1С, вместо полных SELECT по всем таблицам.
+    doc_refs = [row.get('Ref_Key') for row in rows]
+    client_refs = [row.get('Организация') for row in rows]
+    contractor_refs = [row.get('Контрагент') for row in rows]
+    clients_by_ref = _index_by_refs(Client, client_refs)
+    contractors_by_ref = _index_by_refs(Contractor, contractor_refs)
+    docs_by_ref = _index_by_refs(Document, doc_refs)
 
     processed = 0
     for row in rows:
@@ -318,21 +381,21 @@ def sync_documents(settings=None, entities=None, days: int = 30) -> int:
 
         # Привязка документа к клиенту по внешней ссылке клиента
         client_key = row.get('Организация') or ''
-        client = (Client.query.filter_by(external_ref=client_key).first()
-                  if client_key else None)
+        client = clients_by_ref.get(client_key) if client_key else None
         if client is None:
             continue
 
         # Контрагент необязателен: пустое или неизвестное значение
         # сохраняется как отсутствие контрагента.
         contractor_key = row.get('Контрагент') or ''
-        contractor = (Contractor.query.filter_by(external_ref=contractor_key).first()
+        contractor = (contractors_by_ref.get(contractor_key)
                       if contractor_key else None)
 
-        doc = Document.query.filter_by(external_ref=ref_key).first()
+        doc = docs_by_ref.get(ref_key)
         if doc is None:
             doc = Document(external_ref=ref_key, processed=False)
             db.session.add(doc)
+            docs_by_ref[ref_key] = doc
         doc.client_id = client.id
         doc.contractor_id = contractor.id if contractor else None
         doc.doc_type = str(row.get('ВидДокумента') or '')

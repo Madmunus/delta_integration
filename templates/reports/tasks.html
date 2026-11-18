@@ -29,6 +29,7 @@
 <table class="table table-hover align-middle">
   <thead class="table-light"><tr>
     <th>Исполнитель</th>
+    <th>Активность</th>
     <th class="text-end">Выполнено</th>
     <th class="text-end">В работе</th>
     <th class="text-end">Просрочено</th>
@@ -36,9 +37,16 @@
     <th class="text-end"></th>
   </tr></thead>
   <tbody>
-  {% for uid, fio, done, work, over in rows %}
-    <tr>
+  {% for uid, fio, is_active, done, work, over in rows %}
+    <tr class="{{ 'table-secondary' if not is_active }}">
       <td><a href="{{ url_for('users.edit_user', user_id=uid) }}">{{ fio }}</a></td>
+      <td>
+        {% if is_active %}
+          <span class="badge text-bg-success">активен</span>
+        {% else %}
+          <span class="badge text-bg-secondary">отключён</span>
+        {% endif %}
+      </td>
       <td class="text-end text-success"><a
         href="{{ url_for('tasks.list_tasks', assignee=uid, status='done') }}">{{ done or 0 }}</a></td>
       <td class="text-end"><a
@@ -60,7 +68,7 @@
       </td>
     </tr>
     <tr class="delta-report-detail">
-      <td colspan="6">
+      <td colspan="7">
         <div class="collapse" id="assignee-tasks-{{ uid }}">
           <div class="border rounded-3 bg-light-subtle p-2 m-1">
             <table class="table table-sm align-middle mb-0">

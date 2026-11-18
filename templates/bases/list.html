@@ -88,7 +88,9 @@
             {{ setting.last_sync_at|dt if setting.last_sync_at else 'ещё не выполнялась' }}
           </dd>
           <dt class="col-7">Клиентов в реестре</dt>
-          <dd class="col-5 text-end">{{ clients_total }}</dd>
+          <dd class="col-5 text-end">
+            <a href="{{ url_for('clients.list_clients') }}">{{ clients_total }}</a>
+          </dd>
           <dt class="col-7">Клиентов с подключением к 1С:Бухгалтерия</dt>
           <dd class="col-5 text-end">{{ clients_with_odata }}</dd>
           <dt class="col-7">Контрагентов</dt>

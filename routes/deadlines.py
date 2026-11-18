@@ -49,20 +49,34 @@ def deadline_preview():
     clients_total = len(active_clients)
     active_ids = {c.id for c in active_clients}
 
-    rows = []
-    next_due = None
+    dues = {}
     for d in ReportingDeadline.query.filter_by(is_enabled=True).all():
         due = next_due_date(d, today)
-        if due is None:
-            continue
+        if due is not None:
+            dues[d.id] = (d, due)
+
+    # Один запрос на все формы вместо N запросов «выполнено ли уже».
+    done_by_key = {}
+    if dues:
+        deadline_ids = list(dues)
+        due_dates = {due for _, due in dues.values()}
+        done_rows = (db.session.query(Task.reporting_deadline_id,
+                                      Task.due_date, Task.client_id)
+                     .filter(Task.reporting_deadline_id.in_(deadline_ids),
+                             Task.due_date.in_(due_dates),
+                             Task.status == Task.STATUS_DONE)
+                     .all())
+        for deadline_id, due, client_id in done_rows:
+            done_by_key.setdefault((deadline_id, due), set()).add(client_id)
+
+    rows = []
+    next_due = None
+    for d, due in dues.values():
         if due > window_end:
             if next_due is None or due < next_due['due']:
                 next_due = {'deadline': d, 'due': due}
             continue
-        done_clients = {
-            t.client_id for t in Task.query.filter_by(
-                reporting_deadline_id=d.id, due_date=due,
-                status=Task.STATUS_DONE).all()} & active_ids
+        done_clients = done_by_key.get((d.id, due), set()) & active_ids
         rows.append({
             'deadline': d, 'due': due, 'overdue': due < today,
             'clients_total': clients_total,
