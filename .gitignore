@@ -1,2 +1,53 @@
-__pycache__
+# Локальная база разработки и файлы SQLite (в бою используется внешняя СУБД)
 delta.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+instance/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+ENV/
+
+# Кэши Python и инструментов разработки
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Секреты и локальные настройки окружения
+.env
+.env.*
+!.env.example
+
+# Логи
+*.log
+logs/
+
+# Артефакты сборки и установки
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Файлы редакторов и операционных систем
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -3,8 +3,9 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import contains_eager, joinedload, load_only
 
+from engine.audit import CONTRACT_UPDATE, log_action
 from engine.dates import apply_date_range
 from engine.forms import ContractForm
 from engine.models import Client, Contract, Contractor, db
@@ -65,8 +66,19 @@ def list_contracts():
     # дополнительных SELECT на каждую строку таблицы.
     q = (Contract.query.join(Client)
          .outerjoin(Contractor, Contract.contractor_id == Contractor.id)
-         .options(contains_eager(Contract.client),
-                  contains_eager(Contract.contractor)))
+         .options(
+             contains_eager(Contract.client).load_only(
+                 Client.id, Client.name, Client.status),
+             contains_eager(Contract.contractor).load_only(
+                 Contractor.id, Contractor.full_name,
+                 Contractor.external_ref),
+             load_only(Contract.id, Contract.number, Contract.signed_date,
+                       Contract.start_date, Contract.end_date,
+                       Contract.status, Contract.status_1c,
+                       Contract.client_id, Contract.contractor_id,
+                       Contract.amount, Contract.processed,
+                       Contract.created_at),
+         ))
     if not current_user.is_admin:
         q = q.filter(Client.responsible_id == current_user.id)
 
@@ -158,6 +170,7 @@ def edit_contract(contract_id):
         contract.notes = form.notes.data or ''
         db.session.add(contract)
         db.session.commit()
+        log_action(CONTRACT_UPDATE, f'Изменён договор №{contract.number}')
         flash('Договор сохранён', 'success')
         return redirect(url_for('contracts.detail', contract_id=contract.id))
     return render_template('contracts/form.html', form=form, contract=contract)

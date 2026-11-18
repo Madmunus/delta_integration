@@ -1,4 +1,5 @@
 """Модели данных системы (SQLAlchemy ORM)."""
+import re
 from datetime import date, datetime
 
 from flask_sqlalchemy import SQLAlchemy
@@ -39,6 +40,96 @@ class OneCSetting(db.Model):
 
 
 # ----------------------------------------------------------------------------
+# Надёжность интеграции с 1С: очередь ошибок, водяные знаки, breaker
+# ----------------------------------------------------------------------------
+class SyncError(db.Model):
+    """Ошибка синхронизации, которую можно повторить из интерфейса.
+
+    Таблица намеренно не имеет внешнего ключа на Client: ошибка должна
+    сохраняться и после удаления клиента, а удаление клиента не должно
+    падать из-за ссылок из служебной таблицы.
+    """
+
+    __tablename__ = 'sync_errors'
+    __table_args__ = (
+        db.Index('ix_sync_errors_status_next_retry', 'status', 'next_retry_at'),
+        db.Index('ix_sync_errors_scope_client', 'scope', 'client_id'),
+    )
+
+    STATUS_PENDING = 'pending'
+    STATUS_RESOLVED = 'resolved'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scope = db.Column(db.String(32), nullable=False)
+    client_id = db.Column(db.Integer, nullable=True)
+    entity = db.Column(db.String(128), nullable=False, default='')
+    external_ref = db.Column(db.String(128), nullable=False, default='')
+    message = db.Column(db.String(1000), nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=1)
+    status = db.Column(db.String(16), nullable=False, default=STATUS_PENDING)
+    next_retry_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status == self.STATUS_PENDING
+
+    def __repr__(self):
+        return f'<SyncError {self.scope} #{self.id}>'
+
+
+class SyncState(db.Model):
+    """Персистентный водяной знак инкрементальной синхронизации.
+
+    ``client_id = 0`` означает глобальную область (главная база 1С или
+    документооборот). Остальные значения — id клиента.
+    """
+
+    __tablename__ = 'sync_states'
+
+    scope = db.Column(db.String(64), primary_key=True)
+    client_id = db.Column(db.Integer, primary_key=True, default=0)
+    watermark = db.Column(db.String(64), nullable=False, default='')
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    @classmethod
+    def get(cls, scope: str, client_id: int = 0):
+        return db.session.get(cls, (scope, int(client_id or 0)))
+
+    def __repr__(self):
+        return f'<SyncState {self.scope}:{self.client_id}>'
+
+
+class ODataCircuitState(db.Model):
+    """Состояние circuit breaker для подключения конкретного клиента."""
+
+    __tablename__ = 'odata_circuit_states'
+
+    client_id = db.Column(db.Integer, primary_key=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    open_until = db.Column(db.DateTime, nullable=True)
+    last_error = db.Column(db.String(1000), nullable=False, default='')
+    last_success_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    @classmethod
+    def get_or_create(cls, client_id: int):
+        state = db.session.get(cls, int(client_id))
+        if state is None:
+            state = cls(client_id=int(client_id))
+            db.session.add(state)
+        return state
+
+    def __repr__(self):
+        return f'<ODataCircuitState client={self.client_id}>'
+
+
+# ----------------------------------------------------------------------------
 # Пользователь (ФТ-1: ролевая модель admin / employee)
 # ----------------------------------------------------------------------------
 class User(UserMixin, db.Model):
@@ -56,6 +147,10 @@ class User(UserMixin, db.Model):
 
     clients = db.relationship('Client', back_populates='responsible', lazy='dynamic')
     tasks = db.relationship('Task', back_populates='assignee', lazy='dynamic')
+    sessions = db.relationship('UserSession', back_populates='user',
+                               cascade='all, delete-orphan', lazy='dynamic')
+    actions = db.relationship('UserAction', back_populates='user',
+                              cascade='all, delete-orphan', lazy='dynamic')
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -74,6 +169,164 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.email} ({self.role})>'
+
+
+# ----------------------------------------------------------------------------
+# Сессии пользователей (учёт входов в систему)
+# ----------------------------------------------------------------------------
+def _device_from_user_agent(user_agent: str) -> str:
+    """Короткое описание устройства по User-Agent без внешних библиотек."""
+    ua = user_agent or ''
+    if not ua:
+        return 'Неизвестное устройство'
+    lowered = ua.lower()
+
+    # Сначала браузеры, затем ОС: Edge и Chrome содержат общие маркеры.
+    if 'opr/' in lowered or 'opera' in lowered:
+        browser = 'Opera'
+    elif 'edg/' in lowered:
+        browser = 'Edge'
+    elif 'chrome/' in lowered:
+        browser = 'Chrome'
+    elif 'firefox/' in lowered:
+        browser = 'Firefox'
+    elif 'version/' in lowered and 'safari/' in lowered:
+        browser = 'Safari'
+    elif 'msie' in lowered or 'trident/' in lowered:
+        browser = 'Internet Explorer'
+    else:
+        browser = 'Браузер'
+
+    if 'windows nt 10.0' in lowered:
+        os_name = 'Windows 10/11'
+    elif 'windows nt 6.3' in lowered:
+        os_name = 'Windows 8.1'
+    elif 'windows nt 6.2' in lowered:
+        os_name = 'Windows 8'
+    elif 'windows nt 6.1' in lowered:
+        os_name = 'Windows 7'
+    elif 'windows' in lowered:
+        os_name = 'Windows'
+    elif 'android' in lowered:
+        match = re.search(r'Android[ /]([0-9.]+)', ua, re.IGNORECASE)
+        os_name = f'Android {match.group(1)}' if match else 'Android'
+    elif any(marker in lowered for marker in ('iphone', 'ipad', 'ipod')):
+        match = re.search(r'OS (\d+)[_.](\d+)', ua)
+        os_name = (f'iOS {match.group(1)}.{match.group(2)}' if match
+                   else 'iOS')
+    elif 'mac os x' in lowered:
+        match = re.search(r'Mac OS X (\d+)[_.](\d+)', ua)
+        os_name = (f'macOS {match.group(1)}.{match.group(2)}' if match
+                   else 'macOS')
+    elif 'linux' in lowered:
+        os_name = 'Linux'
+    else:
+        os_name = 'неизвестная ОС'
+    return f'{browser} — {os_name}'
+
+
+class UserSession(db.Model):
+    """Запись о входе пользователя (сессия).
+
+    sid хранится в подписанной cookie-сессии Flask. Завершённые сессии не
+    удаляются: у них сбрасывается ``is_active_flag``, поэтому история входов
+    остаётся доступной.
+    """
+    __tablename__ = 'user_sessions'
+    __table_args__ = (
+        db.Index('ix_user_sessions_user_last_seen', 'user_id', 'last_seen_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    sid = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'),
+                        nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, default='')
+    user_agent = db.Column(db.String(512), nullable=False, default='')
+    is_active_flag = db.Column(db.Boolean, nullable=False, default=True,
+                               server_default=db.true())
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    user = db.relationship('User', back_populates='sessions')
+
+    @property
+    def device(self) -> str:
+        """Читаемое название браузера и ОС из User-Agent."""
+        return _device_from_user_agent(self.user_agent)
+
+    def __repr__(self):
+        return f'<UserSession {self.user_id} {self.ip_address}>'
+
+
+# ----------------------------------------------------------------------------
+# Журнал действий пользователей
+# ----------------------------------------------------------------------------
+# Коды действий хранятся латиницей; подписи для интерфейса — здесь же, чтобы
+# журнал и карточка пользователя использовали один и тот же справочник.
+ACTION_LABELS = {
+    'login': 'Вход в систему',
+    'login_failed': 'Неудачная попытка входа',
+    'logout': 'Выход из системы',
+    'user_create': 'Создание пользователя',
+    'user_update': 'Изменение пользователя',
+    'user_toggle': 'Изменение статуса пользователя',
+    'sessions_terminated': 'Завершение других сессий',
+    'client_update': 'Изменение клиента',
+    'client_delete': 'Удаление клиента',
+    'client_sync_contracts': 'Загрузка договоров клиента',
+    'contractor_update': 'Изменение контрагента',
+    'contract_update': 'Изменение договора',
+    'document_update': 'Изменение документа',
+    'task_create': 'Создание задачи',
+    'task_update': 'Изменение задачи',
+    'task_status': 'Изменение статуса задачи',
+    'task_delete': 'Удаление задачи',
+    'tasks_delete_all': 'Удаление всех задач',
+    'deadline_update': 'Изменение вида отчётности',
+    'deadlines_generate': 'Создание задач по срокам',
+    'settings_update': 'Изменение настроек подключения',
+    'sync_clients': 'Синхронизация клиентов и контрагентов',
+    'sync_contracts': 'Загрузка договоров из 1С',
+    'sync_documents': 'Загрузка документов из 1С',
+    'sync_error_retry': 'Повтор ошибки синхронизации 1С',
+}
+
+
+def action_label(code: str) -> str:
+    """Читаемая подпись кода действия (для неизвестных кодов — сам код)."""
+    return ACTION_LABELS.get(code, code)
+
+
+class UserAction(db.Model):
+    """Запись журнала: кто, когда и что сделал."""
+
+    __tablename__ = 'user_actions'
+    __table_args__ = (
+        db.Index('ix_user_actions_user_created', 'user_id', 'created_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'),
+                        nullable=False, index=True)
+    action = db.Column(db.String(64), nullable=False)
+    details = db.Column(db.String(1000), nullable=False, default='')
+    # Идентификатор сессии (sid), в которой совершено действие.
+    session_id = db.Column(db.String(128), nullable=False, default='',
+                           server_default='')
+    # Оставлено для совместимости со старыми записями; в новые не пишется.
+    ip_address = db.Column(db.String(64), nullable=False, default='',
+                           server_default='')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    user = db.relationship('User', back_populates='actions')
+
+    @property
+    def label(self) -> str:
+        return action_label(self.action)
+
+    def __repr__(self):
+        return f'<UserAction {self.user_id} {self.action}>'
 
 
 # ----------------------------------------------------------------------------

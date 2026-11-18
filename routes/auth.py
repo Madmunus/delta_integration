@@ -2,10 +2,12 @@
 from urllib.parse import urlparse
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
-from flask_login import current_user, login_required, login_user, logout_user
+from flask_login import current_user, login_required, login_user
 
+from engine.audit import LOGIN, LOGIN_FAILED, LOGOUT, log_action
 from engine.forms import LoginForm
-from engine.models import User, db
+from engine.models import User
+from engine.user_sessions import start_session, terminate_current_session
 
 bp = Blueprint('auth', __name__)
 
@@ -19,12 +21,17 @@ def login():
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data.strip().lower()).first()
         if user is None or not user.check_password(form.password.data):
+            if user is not None:
+                log_action(LOGIN_FAILED, 'Неверный пароль', user=user)
             flash('Неверный email или пароль', 'danger')
             return render_template('auth/login.html', form=form), 401
         if not user.is_active_flag:
+            log_action(LOGIN_FAILED, 'Учётная запись отключена', user=user)
             flash('Учётная запись отключена', 'warning')
             return render_template('auth/login.html', form=form)
         login_user(user, remember=form.remember.data)
+        start_session(user)
+        log_action(LOGIN, 'Вход в систему', user=user)
         flash(f'Добро пожаловать, {user.fio}!', 'success')
         next_url = request.args.get('next')
         # Защита от open redirect: только локальный абсолютный путь.
@@ -41,6 +48,7 @@ def login():
 @bp.route('/logout')
 @login_required
 def logout():
-    logout_user()
+    log_action(LOGOUT, 'Выход из системы')
+    terminate_current_session()
     flash('Вы вышли из системы', 'info')
     return redirect(url_for('auth.login'))

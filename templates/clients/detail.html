@@ -17,6 +17,14 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-outline-success btn-sm">Загрузить договоры из 1С</button>
     </form>
+    <form method="post"
+          action="{{ url_for('clients.sync_client_contracts', client_id=client.id, force=1) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-warning btn-sm"
+              title="Игнорировать временную блокировку после ошибок 1С">
+        Повторить принудительно
+      </button>
+    </form>
     <a class="btn btn-outline-primary btn-sm"
        href="{{ url_for('clients.edit', client_id=client.id) }}">Редактировать</a>
   </div>

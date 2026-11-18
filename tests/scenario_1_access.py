@@ -6,7 +6,9 @@
 import re
 from datetime import date
 
-from engine.models import Client, Contract, Contractor, Document, User, db
+from engine.models import (Client, Contract, Contractor, Document, User,
+                           UserAction, UserSession, db)
+from engine.user_sessions import SID_KEY
 from tests.base import (EMAILS, TEST_PASSWORD, Steps, create_scenario_app,
                         login, seed_users)
 
@@ -200,6 +202,168 @@ def run():
                 'отключённые; внутри каждой группы — по ФИО',
                 f'порядок: {order}')
 
-    conclusion = ('Сотрудник видит только закреплённых за ним клиентов.'
-                  if steps.passed else 'Ограничение видимости нарушено — см. шаги.')
+    # --- Шаг 9. В личном кабинете видны только свои сессии -------------------
+    own_card = web.get(f"/users/{users['emp1']}/edit")
+    own_html = own_card.get_data(as_text=True)
+    own_ok = (own_card.status_code == 200
+              and '<h2 class="h5 mb-0">Сессии</h2>' in own_html
+              and 'ID сессии' in own_html
+              and 'Завершить остальные сессии' in own_html
+              and 'текущая' in own_html
+              and '127.0.0.1' in own_html)
+    steps.check(own_ok,
+                'В личном кабинете отображаются сессии',
+                'блок «Сессии» показывает ID, IP, устройство и бейдж «текущая»',
+                'блок сессий показан' if own_ok else 'блок сессий отсутствует')
+
+    foreign_card = boss.get(f"/users/{users['emp1']}/edit")
+    foreign_html = foreign_card.get_data(as_text=True)
+    foreign_ok = (foreign_card.status_code == 200
+                  and '<h2 class="h5 mb-0">Сессии</h2>' in foreign_html
+                  and 'Последняя активность' in foreign_html
+                  and 'ID сессии' in foreign_html
+                  and 'Завершить остальные сессии' not in foreign_html)
+    steps.check(foreign_ok,
+                'В чужой карточке видны сессии, но нет кнопки завершения',
+                'руководитель видит блок «Сессии» пользователя, '
+                'но не может завершать его сессии',
+                'блок и кнопка в ожидаемом состоянии' if foreign_ok
+                else 'блок сессий или кнопка отображаются неверно')
+
+    # --- Шаг 10. Второй вход сразу виден как отдельная сессия ---------------
+    iphone_ua = ('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+                 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+                 'Mobile/15E148 Safari/604.1')
+    other = app.test_client()
+    other.environ_base['REMOTE_ADDR'] = '192.0.2.44'
+    second_login = other.post(
+        '/login', data={'email': EMAILS['emp1'], 'password': TEST_PASSWORD},
+        headers={'User-Agent': iphone_ua}, follow_redirects=True)
+    second_html = other.get(f"/users/{users['emp1']}/edit").get_data(as_text=True)
+    with app.app_context():
+        sessions_count = UserSession.query.filter_by(
+            user_id=users['emp1'], is_active_flag=True).count()
+    two_sessions_ok = (second_login.status_code == 200
+                       and sessions_count == 2
+                       and '192.0.2.44' in second_html
+                       and 'Safari — iOS 17.0' in second_html
+                       and second_html.count('текущая') == 1)
+    steps.check(two_sessions_ok,
+                'Второй вход отображается отдельной сессией',
+                'в карточке две сессии: текущая и новая с IP 192.0.2.44 '
+                'и устройством Safari — iOS 17.0',
+                f'записей: {sessions_count}, IP/устройство найдены: '
+                f"{'192.0.2.44' in second_html}/"
+                f"{'Safari — iOS 17.0' in second_html}")
+
+    # --- Шаг 11. Завершение остальных сессий --------------------------------
+    termination = web.post(
+        f"/users/{users['emp1']}/sessions/logout-others")
+    with app.app_context():
+        remaining = UserSession.query.filter_by(
+            user_id=users['emp1'], is_active_flag=True).count()
+        total_sessions = UserSession.query.filter_by(
+            user_id=users['emp1']).count()
+    current_alive = web.get('/dashboard').status_code == 200
+    other_blocked = other.get('/dashboard').status_code == 302
+    termination_ok = (termination.status_code == 302 and remaining == 1
+                      and total_sessions == 2 and current_alive
+                      and other_blocked)
+    steps.check(termination_ok,
+                'Остальные сессии завершены, текущая сохранена',
+                'после POST активна одна сессия; вторая осталась в базе '
+                'с is_active_flag=False и уходит на вход',
+                f'HTTP {termination.status_code}, активных: {remaining}, '
+                f'всего записей: {total_sessions}, '
+                f'текущая жива: {current_alive}, вторая закрыта: {other_blocked}')
+
+    # --- Шаг 12. Нельзя завершить чужие сессии ------------------------------
+    forbidden = boss.post(
+        f"/users/{users['emp1']}/sessions/logout-others")
+    with app.app_context():
+        after_foreign = UserSession.query.filter_by(
+            user_id=users['emp1'], is_active_flag=True).count()
+        all_after = UserSession.query.filter_by(
+            user_id=users['emp1']).count()
+    forbidden_ok = (forbidden.status_code == 403 and after_foreign == 1
+                    and all_after == 2
+                    and boss.get('/dashboard').status_code == 200)
+    steps.check(forbidden_ok,
+                'Завершение чужих сессий запрещено',
+                'POST для чужой карточки возвращает 403 и не трогает сессии',
+                f'HTTP {forbidden.status_code}, активных: {after_foreign}, '
+                f'всего: {all_after}')
+
+    # --- Шаг 13. В карточке видны последние действия пользователя ----------
+    actions_card = web.get(f"/users/{users['emp1']}/edit")
+    actions_html = actions_card.get_data(as_text=True)
+    with web.session_transaction() as sess:
+        web_sid = sess[SID_KEY]
+    with app.app_context():
+        emp1_actions = UserAction.query.filter_by(
+            user_id=users['emp1']).order_by(UserAction.id).all()
+    emp1_codes = [a.action for a in emp1_actions]
+    logged_sids = {a.session_id for a in emp1_actions}
+    needed = ('login', 'login_failed', 'sessions_terminated')
+    actions_ok = (actions_card.status_code == 200
+                  and 'Последние действия' in actions_html
+                  and all(a in emp1_codes for a in needed)
+                  and 'Вход в систему' in actions_html
+                  and 'Неудачная попытка входа' in actions_html
+                  and 'Завершение других сессий' in actions_html
+                  and 'ID сессии' in actions_html
+                  and web_sid in actions_html
+                  and web_sid in logged_sids)
+    steps.check(actions_ok,
+                'В карточке отображаются последние действия пользователя',
+                'блок «Последние действия» показывает вход, неудачную '
+                'попытку, завершение сессий, дату и ID сессии',
+                f'коды в журнале: {emp1_codes}; '
+                f'ID текущей сессии сохранён: {web_sid in logged_sids}'
+                if not actions_ok else 'блок и записи найдены')
+
+    # --- Шаг 14. Изменение профиля тоже попадает в журнал -------------------
+    saved = web.post(
+        f"/users/{users['emp1']}/edit",
+        data={'fio': 'Сотрудников Сергей Иванович',
+              'email': EMAILS['emp1'],
+              'password': '', 'password_confirm': ''})
+    saved_html = web.get(f"/users/{users['emp1']}/edit").get_data(as_text=True)
+    with app.app_context():
+        update_rows = UserAction.query.filter_by(
+            user_id=users['emp1'], action='user_update').all()
+    updates = len(update_rows)
+    update_ok = (saved.status_code == 302 and updates == 1
+                 and update_rows[0].session_id == web_sid
+                 and 'Изменение пользователя' in saved_html)
+    steps.check(update_ok,
+                'Редактирование профиля записывается в журнал',
+                'успешное сохранение карточки добавляет действие '
+                '«Изменение пользователя»',
+                f'HTTP {saved.status_code}, записей: {updates}')
+
+    # --- Шаг 15. Журнал разделён по пользователям ---------------------------
+    boss_card = boss.get(f"/users/{users['admin']}/edit").get_data(as_text=True)
+    with app.app_context():
+        admin_codes = [a.action for a in UserAction.query.filter_by(
+            user_id=users['admin']).all()]
+        emp2_count = UserAction.query.filter_by(
+            user_id=users['emp2']).count()
+    isolation_ok = (emp2_count == 0
+                    and 'login' in admin_codes
+                    and 'sessions_terminated' not in admin_codes
+                    and 'Вход в систему' in boss_card
+                    and 'Завершение других сессий' not in boss_card)
+    steps.check(isolation_ok,
+                'Действия привязаны к исполнителю',
+                'в карточке руководителя — только его действия; '
+                'сотрудник без входов журнал не имеет',
+                f'руководитель: {admin_codes}, '
+                f'второй сотрудник: {emp2_count} записей')
+
+    conclusion = ('Сотрудник видит только закреплённых за ним клиентов; '
+                  'управление активными сессиями и журнал действий работают.'
+                  if steps.passed else
+                  'Ограничение видимости, управление сессиями или журнал '
+                  'действий нарушено — см. шаги.')
     return steps, conclusion

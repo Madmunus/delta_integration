@@ -12,7 +12,9 @@ from urllib.parse import quote, urljoin
 import requests
 from flask import current_app, has_app_context
 
+from engine import odata_metrics
 from engine.config import Config
+from engine.secret_storage import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,27 @@ def configured_max_workers() -> int:
     """Число потоков для параллельной загрузки разных сущностей."""
     return max(1, int(_config_value('ODATA_MAX_WORKERS',
                                     Config.ODATA_MAX_WORKERS)))
+
+
+def incremental_options():
+    """Параметры инкрементальной выборки из конфигурации приложения.
+
+    Возвращает ``(enabled, change_field, deletion_field, overlap_minutes)``.
+    По умолчанию инкрементальность выключена.
+    """
+    enabled = bool(_config_value(
+        'ODATA_INCREMENTAL_ENABLED', Config.ODATA_INCREMENTAL_ENABLED))
+    change_field = str(_config_value(
+        'ODATA_INCREMENTAL_CHANGE_FIELD',
+        Config.ODATA_INCREMENTAL_CHANGE_FIELD) or '').strip()
+    deletion_field = str(_config_value(
+        'ODATA_INCREMENTAL_DELETION_FIELD',
+        Config.ODATA_INCREMENTAL_DELETION_FIELD) or '').strip()
+    overlap = max(0, int(_config_value(
+        'ODATA_INCREMENTAL_OVERLAP_MINUTES',
+        Config.ODATA_INCREMENTAL_OVERLAP_MINUTES)))
+    return enabled, change_field, deletion_field, overlap
+
 
 # Виды документов «1С:Документооборот». «Вид документа» в приложении —
 # это имя сущности без префикса Document_ (например,
@@ -121,7 +144,48 @@ def document_object_url(base_url: str, entity: str, ref_key: str,
 
 
 class ODataError(Exception):
-    """Ошибка обращения к OData-интерфейсу 1С."""
+    """Ошибка обращения к OData-интерфейсу 1С.
+
+    Дополнительные атрибуты нужны circuit breaker и метрикам, но строковое
+    представление остаётся прежним — на нём построены flash-сообщения.
+    """
+
+    PERMANENT_STATUSES = (400, 401, 403, 404, 405)
+
+    def __init__(self, message, status_code=None, entity=None, url=None,
+                 retryable=False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.entity = entity
+        self.url = url
+        self.retryable = retryable
+
+    @property
+    def permanent(self) -> bool:
+        """Ошибка конфигурации/прав: повтор без изменения реквизитов бесполезен."""
+        return self.status_code in self.PERMANENT_STATUSES
+
+
+def _odata_datetime(value) -> str:
+    """OData v3-литерал даты и времени для фильтра ``ДатаИзменения``."""
+    return value.isoformat() if hasattr(value, 'isoformat') else str(value)
+
+
+def _append_change_filter(filt, since, change_field):
+    """Добавить фильтр инкрементальной выборки к уже существующему."""
+    if not since or not change_field:
+        return filt
+    clause = f"{change_field} gt datetime'{_odata_datetime(since)}'"
+    return f'({filt}) and {clause}' if filt else clause
+
+
+def _incremental_select(select, change_field, deletion_field):
+    """Расширить $select полями, нужными только инкрементальной синхронизации."""
+    fields = list(select)
+    for field in (change_field, deletion_field):
+        if field and field not in fields:
+            fields.append(field)
+    return fields
 
 
 class ODataClient:
@@ -171,31 +235,52 @@ class ODataClient:
             'ODATA_RETRY_BACKOFF', Config.ODATA_RETRY_BACKOFF)))
 
         for attempt in range(retries + 1):
+            started = time.perf_counter()
+            odata_metrics.increment('requests')
             try:
                 resp = self._session.get(
                     url, params=params, timeout=self.timeout,
                     headers=headers or None)
             except requests.Timeout as exc:
+                odata_metrics.increment('timeouts')
                 if attempt >= retries:
                     raise ODataError(
-                        f'Таймаут запроса к {url} ({self.timeout} с)') from exc
+                        f'Таймаут запроса к {url} ({self.timeout} с)',
+                        entity=entity, url=url, retryable=True) from exc
+                odata_metrics.increment('retries')
                 time.sleep(backoff * (2 ** attempt))
                 continue
             except requests.RequestException as exc:
+                odata_metrics.increment('connection_errors')
                 if attempt >= retries:
                     raise ODataError(
-                        f'Ошибка соединения с {url}: {exc}') from exc
+                        f'Ошибка соединения с {url}: {exc}',
+                        entity=entity, url=url, retryable=True) from exc
+                odata_metrics.increment('retries')
                 time.sleep(backoff * (2 ** attempt))
                 continue
+            finally:
+                odata_metrics.observe_latency(
+                    (time.perf_counter() - started) * 1000)
 
+            resp_headers = getattr(resp, 'headers', {}) or {}
             if resp.status_code == 304 and cached:
+                odata_metrics.increment('http_304')
+                odata_metrics.increment('cache_hits')
                 return cached['payload']
 
             if resp.status_code == 429 or resp.status_code >= 500:
+                if resp.status_code == 429:
+                    odata_metrics.increment('http_429')
+                else:
+                    odata_metrics.increment('http_5xx')
                 if attempt >= retries:
                     raise ODataError(
-                        f'HTTP {resp.status_code} от {url}: {resp.text[:300]}')
-                retry_after = getattr(resp, 'headers', {}).get('Retry-After')
+                        f'HTTP {resp.status_code} от {url}: {resp.text[:300]}',
+                        status_code=resp.status_code, entity=entity, url=url,
+                        retryable=True)
+                odata_metrics.increment('retries')
+                retry_after = resp_headers.get('Retry-After')
                 try:
                     delay = (float(retry_after) if retry_after
                              else backoff * (2 ** attempt))
@@ -205,22 +290,29 @@ class ODataClient:
                 continue
 
             if resp.status_code >= 400:
+                odata_metrics.increment('http_4xx')
                 raise ODataError(
-                    f'HTTP {resp.status_code} от {url}: {resp.text[:300]}')
+                    f'HTTP {resp.status_code} от {url}: {resp.text[:300]}',
+                    status_code=resp.status_code, entity=entity, url=url)
 
             try:
                 payload = resp.json()
             except ValueError as exc:
-                raise ODataError(f'Некорректный JSON от {url}') from exc
+                odata_metrics.increment('bad_json')
+                raise ODataError(
+                    f'Некорректный JSON от {url}',
+                    entity=entity, url=url, retryable=True) from exc
 
-            etag = getattr(resp, 'headers', {}).get('ETag')
+            etag = resp_headers.get('ETag')
             if etag:
                 self._etag_cache[cache_key] = {'etag': etag, 'payload': payload}
             else:
                 self._etag_cache.pop(cache_key, None)
             return payload
 
-        raise ODataError(f'Не удалось выполнить запрос к {url}')
+        raise ODataError(
+            f'Не удалось выполнить запрос к {url}',
+            entity=entity, url=url, retryable=True)
 
     def query(self, entity: str, select: Optional[Iterable[str]] = None,
               filt: Optional[str] = None, order_by: Optional[str] = None,
@@ -256,6 +348,7 @@ class ODataClient:
         for _ in range(max_pages):
             page = self.query(entity, select=select, filt=filt,
                               order_by=order_by, top=size, skip=skip)
+            odata_metrics.increment('pages')
             if not page:
                 break
             # Без Ref_Key нельзя надёжно дедуплицировать страницы —
@@ -274,6 +367,7 @@ class ODataClient:
                     seen.add(key)
                 new.append(row)
             rows.extend(new)
+            odata_metrics.increment('rows', len(new))
             # Сервер может вернуть меньше строк, чем $top, но при этом
             # проигнорировать $skip — увеличение skip на len(page) тогда
             # приведёт к дублированию. Проверяем фактический сдвиг.
@@ -289,19 +383,27 @@ class ODataClient:
         return rows
 
     # ------------------------------------------------------- типовые запросы
-    def get_organizations(self) -> List[Dict[str, Any]]:
+    def get_organizations(self, since=None, change_field: Optional[str] = None,
+                          deletion_field: Optional[str] = None
+                          ) -> List[Dict[str, Any]]:
         """Клиенты: справочник Catalog_Организации главной базы 1С.
 
         Поля: Ref_Key, Наименование, ИНН, DeletionMark
-        (0 — активный, 1 — неактивный).
+        (0 — активный, 1 — неактивный). ``since`` и ``change_field``
+        включаются только при явном включении инкрементальной синхронизации.
         """
         return self.query_all(
             'Catalog_Организации',
-            select=['Ref_Key', 'Наименование', 'ИНН', 'DeletionMark'],
+            select=_incremental_select(
+                ['Ref_Key', 'Наименование', 'ИНН', 'DeletionMark'],
+                change_field, deletion_field),
+            filt=_append_change_filter(None, since, change_field),
             order_by='Наименование',
         )
 
-    def get_contractors(self) -> List[Dict[str, Any]]:
+    def get_contractors(self, since=None, change_field: Optional[str] = None,
+                        deletion_field: Optional[str] = None
+                        ) -> List[Dict[str, Any]]:
         """Контрагенты: справочник Catalog_Контрагенты главной базы 1С.
 
         Поля: Ref_Key, НаименованиеПолное, ИНН, КПП, DeletionMark
@@ -309,12 +411,16 @@ class ODataClient:
         """
         return self.query_all(
             'Catalog_Контрагенты',
-            select=['Ref_Key', 'НаименованиеПолное', 'ИНН', 'КПП',
-                    'DeletionMark'],
+            select=_incremental_select(
+                ['Ref_Key', 'НаименованиеПолное', 'ИНН', 'КПП',
+                 'DeletionMark'], change_field, deletion_field),
+            filt=_append_change_filter(None, since, change_field),
             order_by='НаименованиеПолное',
         )
 
-    def get_contracts(self) -> List[Dict[str, Any]]:
+    def get_contracts(self, since=None, change_field: Optional[str] = None,
+                      deletion_field: Optional[str] = None
+                      ) -> List[Dict[str, Any]]:
         """Договоры: справочник Catalog_Договоры базы «1С:Бухгалтерия» клиента.
 
         Поля: Ref_Key, Контрагент, Наименование, Дата, СрокДействия,
@@ -322,14 +428,18 @@ class ODataClient:
         """
         return self.query_all(
             'Catalog_Договоры',
-            select=['Ref_Key', 'Контрагент', 'Наименование', 'Дата',
-                    'СрокДействия', 'Статус', 'Сумма', 'Description'],
+            select=_incremental_select(
+                ['Ref_Key', 'Контрагент', 'Наименование', 'Дата',
+                 'СрокДействия', 'Статус', 'Сумма', 'Description'],
+                change_field, deletion_field),
+            filt=_append_change_filter(None, since, change_field),
             order_by='Дата desc',
         )
 
     @staticmethod
-    def document_filt(date_from=None, date_to=None, client_key: str = None,
-                      contractor_key: str = None) -> Optional[str]:
+    def document_filt(date_from=None, date_to=None,
+                      client_key: Optional[str] = None,
+                      contractor_key: Optional[str] = None) -> Optional[str]:
         """Фильтр OData для выборки документов по дате и контрагентам."""
         conditions = []
         if date_from:
@@ -345,13 +455,18 @@ class ODataClient:
         return ' and '.join(conditions) or None
 
     def _load_documents(self, entity: str, filt: Optional[str],
-                        top: int, client: 'ODataClient') -> List[Dict[str, Any]]:
+                        top: int, client: 'ODataClient',
+                        change_field: Optional[str] = None, since=None,
+                        deletion_field: Optional[str] = None
+                        ) -> List[Dict[str, Any]]:
         """Загрузить один вид документов указанным клиентом."""
         rows = client.query_all(
             entity,
-            select=['Ref_Key', 'Number', 'Date', 'Организация',
-                    'Контрагент', 'Статус'],
-            filt=filt,
+            select=_incremental_select(
+                ['Ref_Key', 'Number', 'Date', 'Организация',
+                 'Контрагент', 'Статус'],
+                change_field, deletion_field),
+            filt=_append_change_filter(filt, since, change_field),
             order_by='Date desc',
             page_size=top,
         )
@@ -361,14 +476,18 @@ class ODataClient:
             item = dict(row)
             item['ВидДокумента'] = doc_type
             item['СсылкаНаОбъект'] = document_object_url(
-                self.base_url, entity, row.get('Ref_Key'), row)
+                self.base_url, entity, str(row.get('Ref_Key') or ''), row)
             items.append(item)
         return items
 
-    def get_documents(self, entity: str = None,
-                      date_from=None, date_to=None, client_key: str = None,
-                      contractor_key: str = None, top: int = 500,
-                      entities: Iterable[str] = None) -> List[Dict[str, Any]]:
+    def get_documents(self, entity: Optional[str] = None,
+                      date_from=None, date_to=None,
+                      client_key: Optional[str] = None,
+                      contractor_key: Optional[str] = None, top: int = 500,
+                      entities: Optional[Iterable[str]] = None,
+                      change_field: Optional[str] = None, since=None,
+                      deletion_field: Optional[str] = None
+                      ) -> List[Dict[str, Any]]:
         """Документы из «1С:Документооборот».
 
         Если ``entity`` или ``entities`` не заданы, опрашиваются все виды
@@ -395,10 +514,14 @@ class ODataClient:
             max(1, int(self._setting('ODATA_MAX_WORKERS',
                                      Config.ODATA_MAX_WORKERS))),
             len(entity_list))
+        odata_metrics.increment('document_entities', len(entity_list))
+        odata_metrics.increment('document_workers', workers)
 
         if workers <= 1 or len(entity_list) <= 1:
-            return self._load_documents(entity_list[0], filt, top, self) \
-                if entity_list else []
+            return self._load_documents(
+                entity_list[0], filt, top, self,
+                change_field=change_field, since=since,
+                deletion_field=deletion_field) if entity_list else []
 
         # У каждого потока свой Session: requests.Session не потокобезопасен.
         by_index: Dict[int, List[Dict[str, Any]]] = {}
@@ -414,11 +537,16 @@ class ODataClient:
                         config_overrides=self._config_overrides)
                     children.append(child)
                     futures[pool.submit(
-                        self._load_documents, ent, filt, top, child)] = index
+                        self._load_documents, ent, filt, top, child,
+                        change_field, since, deletion_field)] = index
                 for future in as_completed(futures):
                     # Ошибка любой сущности остаётся фатальной, как и в
                     # последовательном варианте.
-                    by_index[futures[future]] = future.result()
+                    try:
+                        by_index[futures[future]] = future.result()
+                    except Exception:
+                        odata_metrics.increment('document_failures')
+                        raise
         finally:
             # with завершает все futures до выхода, поэтому сессии можно
             # закрывать даже при ошибке одной из сущностей.
@@ -448,7 +576,7 @@ def client_for_settings(settings) -> ODataClient:
     return ODataClient(
         base_url=settings.odata_url,
         username=settings.username,
-        password=settings.password,
+        password=decrypt_secret(settings.password),
     )
 
 
@@ -457,5 +585,5 @@ def client_for_client(client) -> ODataClient:
     return ODataClient(
         base_url=client.odata_url,
         username=client.odata_username,
-        password=client.odata_password,
+        password=decrypt_secret(client.odata_password),
     )

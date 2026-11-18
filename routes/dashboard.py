@@ -9,9 +9,9 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, render_template, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import case, func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import contains_eager, joinedload, load_only
 
-from engine.models import Client, Contract, Contractor, Document, Task
+from engine.models import Client, Contract, Contractor, Document, Task, User
 from routes.contracts import DEFAULT_STATUS_ORDER as CONTRACT_STATUS_ORDER
 from routes.documents import (DEFAULT_STATUS_ORDER as DOCUMENT_STATUS_ORDER,
                               DOCUMENT_STATUSES, _status_in)
@@ -55,7 +55,12 @@ def index():
     clients_archived = client_agg.archived
     clients_new = client_agg.new
     clients_preview = (clients_q
-                       .options(joinedload(Client.responsible))
+                       .options(
+                           load_only(Client.id, Client.name, Client.inn,
+                                     Client.status, Client.responsible_id),
+                           joinedload(Client.responsible).load_only(
+                               User.id, User.fio),
+                       )
                        .order_by(CLIENT_STATUS_ORDER, Client.name.asc())
                        .limit(5).all())
     client_stats = [
@@ -82,6 +87,11 @@ def index():
     contractors_archived = contractor_agg.archived
     contractors_new = contractor_agg.new
     contractors_preview = (Contractor.query
+                           .options(load_only(Contractor.id,
+                                              Contractor.full_name,
+                                              Contractor.inn,
+                                              Contractor.status,
+                                              Contractor.created_at))
                            .order_by(Contractor.full_name.asc())
                            .limit(5).all())
     contractor_stats = [
@@ -117,8 +127,17 @@ def index():
                          .outerjoin(
                              Contractor,
                              Contract.contractor_id == Contractor.id)
-                         .options(joinedload(Contract.client),
-                                  joinedload(Contract.contractor))
+                         .options(
+                             contains_eager(Contract.client).load_only(
+                                 Client.id, Client.name, Client.status),
+                             contains_eager(Contract.contractor).load_only(
+                                 Contractor.id, Contractor.full_name),
+                             load_only(Contract.id, Contract.number,
+                                       Contract.signed_date, Contract.status,
+                                       Contract.status_1c,
+                                       Contract.client_id,
+                                       Contract.contractor_id),
+                         )
                          .order_by(CONTRACT_STATUS_ORDER,
                                    Contract.signed_date.desc().nullslast(),
                                    Contract.number.asc())
@@ -153,6 +172,10 @@ def index():
                        for i, label in enumerate(status_labels)}
     documents_processed = document_agg.processed
     documents_preview = (documents_q
+                         .options(load_only(Document.id, Document.doc_type,
+                                            Document.number,
+                                            Document.doc_date,
+                                            Document.status))
                          .order_by(DOCUMENT_STATUS_ORDER,
                                    Document.doc_date.desc().nullslast(),
                                    Document.number.asc(),
@@ -191,6 +214,9 @@ def index():
     tasks_done = task_agg.done
     tasks_overdue = task_agg.overdue
     tasks_preview = (tasks_q
+                     .options(load_only(Task.id, Task.title,
+                                        Task.due_date, Task.priority,
+                                        Task.status))
                      .order_by(TASK_STATUS_ORDER,
                                Task.priority.asc().nullslast(),
                                Task.due_date.asc().nullslast(),

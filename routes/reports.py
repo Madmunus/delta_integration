@@ -71,19 +71,23 @@ def clients_report():
              .order_by(User.is_active_flag.desc(),
                        active_clients.desc(),
                        User.fio.asc())).all()
-    # Клиенты каждого ответственного — для раскрывающегося списка в таблице
+    # Клиенты каждого ответственного — для раскрывающегося списка в таблице.
+    # Загружаем только поля, используемые в отчёте: раньше сюда попадали
+    # заметки и реквизиты подключения к 1С всех клиентов.
+    clients = (Client.query
+               .options(load_only(Client.id, Client.name, Client.inn,
+                                  Client.status, Client.responsible_id,
+                                  Client.created_at))
+               .order_by(Client.name).all())
     clients_by_user = defaultdict(list)
-    for client in Client.query.order_by(Client.name).all():
+    for client in clients:
         clients_by_user[client.responsible_id].append(client)
-    # Сводные показатели считаем напрямую по реестру одним запросом:
-    # в таблице ниже отражены только клиенты с назначенным ответственным
-    total, active, unassigned = db.session.query(
-        func.count(Client.id),
-        func.coalesce(func.sum(case(
-            (Client.status == 'active', 1), else_=0)), 0),
-        func.coalesce(func.sum(case(
-            (Client.responsible_id.is_(None), 1), else_=0)), 0),
-    ).one()
+    # Сводные показатели считаем по уже загруженному реестру: отдельный
+    # aggregate-запрос здесь дублировал чтение тех же самых строк.
+    total = len(clients)
+    active = sum(1 for client in clients if client.status == 'active')
+    unassigned = sum(1 for client in clients
+                     if client.responsible_id is None)
     return render_template('reports/clients.html', rows=rows, total=total,
                            active=active, unassigned=unassigned,
                            clients_by_user=clients_by_user)
@@ -120,22 +124,31 @@ def tasks_report():
                  func.sum(case((Task.status == 'done', 1), else_=0)).desc(),
                  User.fio.asc(),
              )).all()
-    # Задачи каждого исполнителя — для раскрывающегося списка в таблице
+    # Задачи каждого исполнителя — для раскрывающегося списка в таблице.
+    # Ограничиваем выборку полями из шаблона; описание задач не нужно.
+    tasks = (Task.query
+             .options(
+                 load_only(Task.id, Task.title, Task.client_id,
+                           Task.due_date, Task.priority, Task.status,
+                           Task.assignee_id, Task.reporting_deadline_id),
+                 joinedload(Task.client).load_only(Client.id, Client.name),
+             )
+             .order_by(Task.due_date.asc().nullslast(),
+                       Task.title.asc()).all())
     tasks_by_assignee = defaultdict(list)
-    for task in (Task.query.options(joinedload(Task.client))
-                 .order_by(Task.due_date.asc().nullslast(),
-                           Task.title.asc()).all()):
+    for task in tasks:
         tasks_by_assignee[task.assignee_id].append(task)
-    # Суммарные показатели для плиток над таблицей — одним запросом
-    total, done, opened, overdue = db.session.query(
-        func.count(Task.id),
-        func.coalesce(func.sum(case(
-            (Task.status == Task.STATUS_DONE, 1), else_=0)), 0),
-        func.coalesce(func.sum(case(
-            (Task.status.in_([Task.STATUS_NEW, Task.STATUS_IN_PROGRESS]), 1),
-            else_=0)), 0),
-        func.coalesce(func.sum(case((overdue_condition, 1), else_=0)), 0),
-    ).one()
+    # Плитки над таблицей считаем по тем же задачам, чтобы не делать
+    # третий запрос к той же таблице.
+    total = len(tasks)
+    done = sum(1 for task in tasks
+               if task.status == Task.STATUS_DONE)
+    opened = sum(1 for task in tasks
+                 if task.status in (Task.STATUS_NEW, Task.STATUS_IN_PROGRESS))
+    overdue = sum(1 for task in tasks
+                  if (task.status != Task.STATUS_DONE
+                      and task.due_date is not None
+                      and task.due_date < today))
     totals = {
         'total': total,
         'done': done,
@@ -165,6 +178,7 @@ def contracts_report():
                      load_only(Contract.id, Contract.number,
                                Contract.signed_date, Contract.start_date,
                                Contract.end_date, Contract.status,
+                               Contract.status_1c,
                                Contract.client_id, Contract.contractor_id,
                                Contract.amount, Contract.processed),
                      joinedload(Contract.client).load_only(

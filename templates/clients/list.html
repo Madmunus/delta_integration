@@ -40,7 +40,7 @@
   </div>
   {% if current_user.is_admin %}
   <div class="col-6 col-md-2 col-lg-2">
-    <select class="form-select" name="responsible">
+    <select class="form-select" name="responsible" data-searchable>
       <option value="">Все ответственные</option>
       <option value="none" {{ 'selected' if responsible == 'none' }}>— не назначен —</option>
       {% for u in responsibles %}

@@ -17,6 +17,15 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # --- Интеграция с 1С ---
+    # Ключ шифрования паролей подключения к 1С. Если не задан, ключ
+    # детерминированно выводится из SECRET_KEY (для разработки и тестов).
+    ONEC_ENCRYPTION_KEY = os.environ.get('DELTA_1C_ENCRYPTION_KEY')
+    # Старый ключ (или список через запятую) для ротации без простоя.
+    ONEC_ENCRYPTION_KEY_OLD = [
+        item.strip() for item in
+        (os.environ.get('DELTA_1C_ENCRYPTION_KEY_OLD') or '').split(',')
+        if item.strip()
+    ]
     # Таймауты HTTP-запросов к OData, сек
     ODATA_TIMEOUT = int(os.environ.get('DELTA_ODATA_TIMEOUT', '15'))
     # Размер страницы и параметры повторных запросов OData
@@ -27,6 +36,32 @@ class Config:
         os.environ.get('DELTA_ODATA_RETRY_BACKOFF', '0.5'))
     # Параллелизм загрузки разных видов документов из 1С
     ODATA_MAX_WORKERS = int(os.environ.get('DELTA_ODATA_MAX_WORKERS', '4'))
+
+    # Инкрементальная синхронизация — opt-in: не все публикации 1С
+    # отдают поле даты изменения, поэтому по умолчанию сохраняется
+    # полная выборка (прошлое поведение).
+    ODATA_INCREMENTAL_ENABLED = os.environ.get(
+        'DELTA_ODATA_INCREMENTAL', '0').lower() in ('1', 'true', 'yes', 'on')
+    ODATA_INCREMENTAL_CHANGE_FIELD = os.environ.get(
+        'DELTA_ODATA_CHANGE_FIELD', 'ДатаИзменения')
+    ODATA_INCREMENTAL_OVERLAP_MINUTES = int(os.environ.get(
+        'DELTA_ODATA_INCREMENTAL_OVERLAP', '60'))
+    ODATA_INCREMENTAL_DELETION_FIELD = os.environ.get(
+        'DELTA_ODATA_DELETION_FIELD', 'DeletionMark')
+
+    # Circuit breaker для per-client подключений к «1С:Бухгалтерия».
+    ODATA_CIRCUIT_FAILURE_THRESHOLD = int(os.environ.get(
+        'DELTA_ODATA_CIRCUIT_THRESHOLD', '5'))
+    ODATA_CIRCUIT_COOLDOWN_SECONDS = int(os.environ.get(
+        'DELTA_ODATA_CIRCUIT_COOLDOWN', '300'))
+    ODATA_CIRCUIT_PERMANENT_COOLDOWN_SECONDS = int(os.environ.get(
+        'DELTA_ODATA_CIRCUIT_PERMANENT_COOLDOWN', '3600'))
+    # Очередь ошибок синхронизации
+    SYNC_ERROR_RETRY_DELAY_SECONDS = int(os.environ.get(
+        'DELTA_SYNC_ERROR_RETRY_DELAY', '300'))
+    SYNC_ERROR_MAX_ATTEMPTS = int(os.environ.get(
+        'DELTA_SYNC_ERROR_MAX_ATTEMPTS', '20'))
+
     # Период фоновой синхронизации справочника клиентов, сек
     SYNC_INTERVAL_SECONDS = int(os.environ.get('DELTA_SYNC_INTERVAL', '3600'))
     # Период фоновой загрузки документов из «1С:Документооборот», сек
@@ -62,7 +97,7 @@ class DevelopmentConfig(Config):
 class ProductionConfig(Config):
     DEBUG = False
     # В продакшене SECRET_KEY обязательно задаётся переменной окружения
-    SECRET_KEY = os.environ.get('DELTA_SECRET_KEY')
+    SECRET_KEY = os.environ.get('DELTA_SECRET_KEY') or ''
     SESSION_COOKIE_SECURE = True
     REMEMBER_COOKIE_SECURE = True
     PREFERRED_URL_SCHEME = 'https'

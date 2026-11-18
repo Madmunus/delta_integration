@@ -9,6 +9,7 @@ import re
 from datetime import date
 
 from engine.models import Client, Contract, Contractor, OneCSetting, db
+from engine.secret_storage import decrypt_secret, is_encrypted
 from engine.sync import sync_clients
 from tests.base import (EMAILS, Steps, create_scenario_app, fake_1c,
                         login, seed_users)
@@ -78,6 +79,7 @@ def run():
     with app.app_context():
         total = Client.query.count()
         alpha = Client.query.filter_by(inn='7701111111').first()
+        alpha_id = alpha.id if alpha else None
         deleted = Client.query.filter_by(inn='7704444444').first()
     steps.check(total == 4,
                 'Организации перенесены в реестр клиентов',
@@ -434,8 +436,36 @@ def run():
                  f'с page=2: {sum("page=2" in href for href in sort_hrefs)}')
                 if sort_hrefs else 'ссылки сортировки не найдены')
 
+    # --- Шаг 11. Пароли 1С сохраняются зашифрованными -----------------
+    web.post('/bases', data={
+        'odata_url': 'http://test-1c.local/odata/standard.odata/',
+        'username': 'odata',
+        'password': 'new-encrypted-secret',
+    }, follow_redirects=True)
+    web.post(f'/clients/{alpha_id}/edit', data={
+        'responsible_id': '0',
+        'notes': '',
+        'odata_url': 'http://client-1c.local/odata/standard.odata/',
+        'odata_username': 'client-odata',
+        'odata_password': 'client-encrypted-secret',
+    }, follow_redirects=True)
+    with app.app_context():
+        stored_setting = OneCSetting.get().password
+        stored_client = db.session.get(Client, alpha_id).odata_password
+        encrypted = (is_encrypted(stored_setting)
+                     and decrypt_secret(stored_setting) == 'new-encrypted-secret'
+                     and is_encrypted(stored_client)
+                     and decrypt_secret(stored_client) == 'client-encrypted-secret')
+    steps.check(encrypted,
+                'Пароли подключений к 1С шифруются при сохранении',
+                'в БД лежат шифртексты с префиксом enc:v1:, при чтении '
+                'возвращаются исходные значения; старый открытый пароль '
+                'из шага 1 синхронизация прочитала успешно',
+                'оба пароля зашифрованы и расшифровываются'
+                if encrypted else 'шифрование не применено')
+
     conclusion = ('Синхронизация клиентов и контрагентов выполнена, '
-                  'дублирование отсутствует.'
+                  'дублирование отсутствует, пароли 1С зашифрованы.'
                   if steps.passed
                   else 'Синхронизация выполнена некорректно — см. шаги.')
     return steps, conclusion

@@ -5,6 +5,7 @@ from flask import (Blueprint, abort, current_app, flash, redirect,
                    render_template, request, url_for)
 from flask_login import current_user, login_required
 
+from engine.audit import DEADLINE_UPDATE, DEADLINES_GENERATE, log_action
 from engine.forms import ReportingDeadlineForm
 from engine.models import Client, ReportingDeadline, Task, db
 from engine.tasks import generate_deadline_tasks, next_due_date
@@ -96,6 +97,7 @@ def generate_tasks_now():
     """Ручной запуск автогенерации задач по срокам (ФТ-5)."""
     lead = current_app.config['DEADLINE_LEAD_DAYS']
     created = generate_deadline_tasks(lead)
+    log_action(DEADLINES_GENERATE, f'Создано задач: {len(created)}')
     if created:
         flash(f'Создано задач: {len(created)}', 'success')
         return redirect(url_for('deadlines.list_deadlines'))
@@ -132,6 +134,8 @@ def edit_deadline(deadline_id=None):
         form.populate_obj(deadline)
         db.session.add(deadline)
         db.session.commit()
+        log_action(DEADLINE_UPDATE,
+                   f'Изменён вид отчётности «{deadline.name}»')
         flash('Вид отчётности сохранён', 'success')
         return redirect(url_for('deadlines.list_deadlines'))
     return render_template('deadlines/form.html', form=form, deadline=deadline)

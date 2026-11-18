@@ -1,11 +1,15 @@
 """Управление пользователями: руководитель — все, сотрудник — свои данные."""
-from flask import (Blueprint, abort, flash, redirect, render_template,
-                   request, url_for)
+from flask import (Blueprint, abort, current_app, flash, redirect,
+                   render_template, request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case
 
+from engine.audit import (LATEST_LIMIT, SESSIONS_TERMINATED, USER_CREATE,
+                          USER_TOGGLE, USER_UPDATE, latest_actions, log_action)
 from engine.forms import ProfileForm, UserForm
 from engine.models import User, db
+from engine.user_sessions import (current_sid, list_sessions,
+                                  terminate_others)
 
 bp = Blueprint('users', __name__)
 
@@ -71,6 +75,8 @@ def add_user():
             user.set_password(form.password.data)
             db.session.add(user)
             db.session.commit()
+            log_action(USER_CREATE,
+                       f'Создан пользователь «{user.fio}» ({user.email})')
             flash(f'Пользователь «{user.fio}» создан', 'success')
             return redirect(url_for('users.list_users'))
     return render_template('users/form.html', form=form, user=None,
@@ -119,13 +125,41 @@ def edit_user(user_id):
                 user.set_password(form.password.data)
                 flash('Пароль обновлён', 'info')
             db.session.commit()
+            log_action(USER_UPDATE,
+                       f'Изменён пользователь «{user.fio}» ({user.email})'
+                       + ('; пароль обновлён' if form.password.data else ''))
             flash(f'Пользователь «{user.fio}» сохранён', 'success')
             if is_self:
                 return redirect(url_for('users.edit_user', user_id=user.id))
             return redirect(url_for('users.list_users'))
 
+    own_sessions = list_sessions(user.id)
+    active_count = sum(1 for s in own_sessions if s.is_active_flag)
+    lifetime_days = max(1, int(
+        current_app.permanent_session_lifetime.total_seconds() // 86400))
     return render_template('users/form.html', form=form, user=user,
-                           is_admin_form=is_admin)
+                           is_admin_form=is_admin, is_self=is_self,
+                           user_sessions=own_sessions,
+                           active_sessions_count=active_count,
+                           current_sid=current_sid(),
+                           session_lifetime_days=lifetime_days,
+                           user_actions=latest_actions(user.id, LATEST_LIMIT))
+
+
+@bp.route('/users/<int:user_id>/sessions/logout-others', methods=['POST'])
+@login_required
+def logout_other_sessions(user_id):
+    """Завершить все активные сессии пользователя, кроме текущей."""
+    if user_id != current_user.id:
+        abort(403)
+
+    removed = terminate_others(current_user.id, current_sid())
+    log_action(SESSIONS_TERMINATED, f'Завершено других сессий: {removed}')
+    if removed:
+        flash(f'Завершено других сессий: {removed}.', 'success')
+    else:
+        flash('Других активных сессий нет.', 'info')
+    return redirect(url_for('users.edit_user', user_id=current_user.id))
 
 
 @bp.route('/users/<int:user_id>/toggle', methods=['POST'])
@@ -143,6 +177,9 @@ def toggle_user(user_id):
     else:
         user.is_active_flag = new_active
         db.session.commit()
+        log_action(USER_TOGGLE,
+                   f'Пользователь «{user.fio}» '
+                   f'{"включён" if new_active else "отключён"}')
         flash(f'Пользователь «{user.fio}» '
               f'{"включён" if new_active else "отключён"}', 'success')
 

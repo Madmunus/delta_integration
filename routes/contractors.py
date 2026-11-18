@@ -2,9 +2,10 @@
 from flask import (Blueprint, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
-from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload, load_only
 
+from engine.audit import CONTRACTOR_UPDATE, log_action
 from engine.dates import apply_date_range
 from engine.forms import ContractorForm
 from engine.models import Client, Contract, Contractor, Document, db
@@ -85,10 +86,26 @@ def detail(contractor_id):
                   .filter(Contractor.id == contractor_id).first_or_404())
 
     contracts_q = (Contract.query
-                   .options(joinedload(Contract.client))
+                   .options(
+                       load_only(Contract.id, Contract.number,
+                                 Contract.signed_date, Contract.start_date,
+                                 Contract.end_date, Contract.status,
+                                 Contract.status_1c, Contract.amount,
+                                 Contract.client_id, Contract.created_at),
+                       joinedload(Contract.client).load_only(
+                           Client.id, Client.name, Client.status),
+                   )
                    .filter(Contract.contractor_id == contractor.id))
     documents_q = (Document.query
-                   .options(joinedload(Document.client))
+                   .options(
+                       load_only(Document.id, Document.doc_type,
+                                 Document.number, Document.doc_date,
+                                 Document.status, Document.client_id,
+                                 Document.external_url,
+                                 Document.created_at),
+                       joinedload(Document.client).load_only(
+                           Client.id, Client.name),
+                   )
                    .filter(Document.contractor_id == contractor.id))
     if not current_user.is_admin:
         contracts_q = (contracts_q
@@ -100,8 +117,25 @@ def detail(contractor_id):
 
     contracts_q = contracts_q.order_by(Contract.signed_date.desc())
     documents_q = documents_q.order_by(Document.doc_date.desc().nullslast())
-    contracts_total = contracts_q.count()
-    documents_total = documents_q.count()
+    # Оба счётчика — одним запросом (скалярные подзапросы не умножают
+    # строки друг на друга, в отличие от CROSS JOIN).
+    contract_count = (db.select(func.count()).select_from(Contract)
+                      .where(Contract.contractor_id == contractor.id))
+    document_count = (db.select(func.count()).select_from(Document)
+                      .where(Document.contractor_id == contractor.id))
+    if not current_user.is_admin:
+        contract_count = (contract_count
+                          .join(Client, Contract.client_id == Client.id)
+                          .where(Client.responsible_id == current_user.id))
+        document_count = (document_count
+                          .join(Client, Document.client_id == Client.id)
+                          .where(Client.responsible_id == current_user.id))
+    counts = db.session.query(
+        contract_count.scalar_subquery().label('contracts_total'),
+        document_count.scalar_subquery().label('documents_total'),
+    ).one()
+    contracts_total = counts.contracts_total
+    documents_total = counts.documents_total
     contracts = contracts_q.limit(DETAIL_ROWS).all()
     documents = documents_q.limit(DETAIL_ROWS).all()
     return render_template('contractors/detail.html', contractor=contractor,
@@ -120,6 +154,8 @@ def edit(contractor_id):
     if form.validate_on_submit():
         contractor.notes = form.notes.data or ''
         db.session.commit()
+        log_action(CONTRACTOR_UPDATE,
+                   f'Изменён контрагент «{contractor.display_name}»')
         flash('Заметки контрагента сохранены', 'success')
         return redirect(url_for('contractors.detail', contractor_id=contractor.id))
     return render_template('contractors/form.html', contractor=contractor,

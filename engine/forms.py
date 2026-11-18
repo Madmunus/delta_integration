@@ -2,9 +2,8 @@
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import (BooleanField, DateField, IntegerField,
-                     PasswordField, SelectField, SelectMultipleField, StringField,
-                     SubmitField, TextAreaField)
+from wtforms import (BooleanField, DateField, IntegerField, PasswordField,
+                     SelectField, StringField, SubmitField, TextAreaField)
 from wtforms.validators import (DataRequired, Length, NumberRange,
                                 Optional, Regexp, ValidationError)
 

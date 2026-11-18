@@ -2,12 +2,16 @@
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
-from sqlalchemy import case, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import joinedload, load_only
 
+from engine import circuit_breaker
+from engine.audit import (CLIENT_DELETE, CLIENT_SYNC_CONTRACT, CLIENT_UPDATE,
+                          log_action)
 from engine.dates import apply_date_range
 from engine.forms import ClientForm
-from engine.models import Client, Contract, Document, Task, User, db
+from engine.models import Client, Contract, Contractor, Document, Task, User, db
+from engine.secret_storage import encrypt_secret
 from engine.sync import sync_contracts
 
 bp = Blueprint('clients', __name__)
@@ -38,7 +42,13 @@ SORTABLE_COLUMNS = {
 @login_required
 def list_clients():
     # Ответственный выводится в каждой строке реестра — грузим его сразу.
-    q = visible_clients_query().options(joinedload(Client.responsible))
+    # Ограничиваем и поля реестра, и поля пользователя: раньше в выборку
+    # попадали и пароли 1С клиентов, и хеши пользователей.
+    q = visible_clients_query().options(
+        load_only(Client.id, Client.name, Client.inn, Client.status,
+                  Client.notes, Client.created_at, Client.responsible_id),
+        joinedload(Client.responsible).load_only(User.id, User.fio),
+    )
 
     # Поиск и фильтрация (ФТ-2)
     search = (request.args.get('q') or '').strip()
@@ -116,22 +126,64 @@ def detail(client_id):
     # В карточке показываем первые DETAIL_ROWS строк; полный список —
     # в соответствующем реестре со ссылкой на этого клиента.
     contracts_q = (Contract.query
-                   .options(joinedload(Contract.client),
-                            joinedload(Contract.contractor))
+                   .options(
+                       load_only(Contract.id, Contract.number,
+                                 Contract.signed_date, Contract.start_date,
+                                 Contract.end_date, Contract.status,
+                                 Contract.status_1c, Contract.client_id,
+                                 Contract.contractor_id, Contract.amount,
+                                 Contract.created_at),
+                       joinedload(Contract.client).load_only(
+                           Client.id, Client.name, Client.status),
+                       joinedload(Contract.contractor).load_only(
+                           Contractor.id, Contractor.full_name,
+                           Contractor.external_ref),
+                   )
                    .filter(Contract.client_id == client_id)
                    .order_by(Contract.signed_date.desc()))
     tasks_q = (Task.query
-               .options(joinedload(Task.client), joinedload(Task.assignee))
+               .options(
+                   load_only(Task.id, Task.title, Task.client_id,
+                             Task.assignee_id, Task.due_date, Task.priority,
+                             Task.status, Task.created_at,
+                             Task.reporting_deadline_id),
+                   joinedload(Task.client).load_only(Client.id, Client.name),
+                   joinedload(Task.assignee).load_only(User.id, User.fio),
+               )
                .filter(Task.client_id == client_id)
                .order_by(Task.due_date.asc().nullslast()))
     documents_q = (Document.query
-                   .options(joinedload(Document.client),
-                            joinedload(Document.contractor))
+                   .options(
+                       load_only(Document.id, Document.doc_type,
+                                 Document.number, Document.doc_date,
+                                 Document.status, Document.client_id,
+                                 Document.contractor_id,
+                                 Document.external_url,
+                                 Document.created_at),
+                       joinedload(Document.client).load_only(
+                           Client.id, Client.name),
+                       joinedload(Document.contractor).load_only(
+                           Contractor.id, Contractor.full_name,
+                           Contractor.external_ref),
+                   )
                    .filter(Document.client_id == client_id)
                    .order_by(Document.doc_date.desc().nullslast()))
-    contracts_total = contracts_q.count()
-    tasks_total = tasks_q.count()
-    documents_total = documents_q.count()
+    # Три счётчика — одним запросом: скалярные подзапросы не умножают
+    # строки друг на друга, в отличие от CROSS JOIN.
+    counts = db.session.query(
+        db.select(func.count()).select_from(Contract)
+        .where(Contract.client_id == client_id)
+        .scalar_subquery().label('contracts_total'),
+        db.select(func.count()).select_from(Task)
+        .where(Task.client_id == client_id)
+        .scalar_subquery().label('tasks_total'),
+        db.select(func.count()).select_from(Document)
+        .where(Document.client_id == client_id)
+        .scalar_subquery().label('documents_total'),
+    ).one()
+    contracts_total = counts.contracts_total
+    tasks_total = counts.tasks_total
+    documents_total = counts.documents_total
     contracts = contracts_q.limit(DETAIL_ROWS).all()
     tasks = tasks_q.limit(DETAIL_ROWS).all()
     documents = documents_q.limit(DETAIL_ROWS).all()
@@ -158,13 +210,23 @@ def edit(client_id):
         form.responsible_id.data = client.responsible_id or 0
         form.odata_password.data = ''  # пароль не показываем
     if form.validate_on_submit():
+        new_url = (form.odata_url.data or '').strip()
+        new_username = (form.odata_username.data or '').strip()
+        credentials_changed = (
+            client.odata_url != new_url
+            or client.odata_username != new_username
+            or bool(form.odata_password.data))
         client.responsible_id = form.responsible_id.data or None
         client.notes = form.notes.data or ''
-        client.odata_url = (form.odata_url.data or '').strip()
-        client.odata_username = (form.odata_username.data or '').strip()
+        client.odata_url = new_url
+        client.odata_username = new_username
         if form.odata_password.data:
-            client.odata_password = form.odata_password.data
+            client.odata_password = encrypt_secret(form.odata_password.data)
+        if credentials_changed:
+            # Новые реквизиты — старые ошибки и блокировка breaker неактуальны.
+            circuit_breaker.reset(client.id)
         db.session.commit()
+        log_action(CLIENT_UPDATE, f'Изменён клиент «{client.name}»')
         flash('Изменения сохранены', 'success')
         return redirect(url_for('clients.detail', client_id=client.id))
     return render_template('clients/form.html', form=form, client=client)
@@ -177,7 +239,11 @@ def sync_client_contracts(client_id):
     client = Client.query.get_or_404(client_id)
     if not current_user.is_admin and client.responsible_id != current_user.id:
         abort(403)
-    stats = sync_contracts(client)
+    force = request.args.get('force') == '1'
+    stats = sync_contracts(client, force=force)
+    log_action(CLIENT_SYNC_CONTRACT,
+               f'Клиент «{client.name}»: создано {stats["created"]}, '
+               f'обновлено {stats["updated"]}')
     for err in stats['errors'][:5]:
         flash(err, 'warning')
     if not stats['errors']:
@@ -196,5 +262,6 @@ def delete(client_id):
     name = client.name
     db.session.delete(client)  # cascade: contracts, tasks, documents
     db.session.commit()
+    log_action(CLIENT_DELETE, f'Удалён клиент «{name}»')
     flash(f'Клиент «{name}» и связанные данные удалены', 'success')
     return redirect(url_for('clients.list_clients'))

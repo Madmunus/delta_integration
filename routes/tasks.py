@@ -5,8 +5,10 @@ from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, or_
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import contains_eager, joinedload, load_only
 
+from engine.audit import (TASK_CREATE, TASK_DELETE, TASK_STATUS, TASK_UPDATE,
+                          TASKS_DELETE_ALL, log_action)
 from engine.dates import apply_date_range
 from engine.forms import TaskForm
 from engine.models import Client, Task, User, db
@@ -58,8 +60,14 @@ def list_tasks():
     q = (_task_filter(Task.query)
          .outerjoin(Client, Task.client_id == Client.id)
          .outerjoin(User, Task.assignee_id == User.id)
-         .options(contains_eager(Task.client),
-                  contains_eager(Task.assignee)))
+         .options(
+             contains_eager(Task.client).load_only(Client.id, Client.name),
+             contains_eager(Task.assignee).load_only(User.id, User.fio),
+             load_only(Task.id, Task.title, Task.client_id,
+                       Task.assignee_id, Task.due_date, Task.priority,
+                       Task.status, Task.created_at,
+                       Task.reporting_deadline_id),
+         ))
     status = (request.args.get('status') or '').strip()
     # Старый параметр «Просроченные» поддерживается как псевдостатус
     if not status and request.args.get('overdue') == '1':
@@ -199,6 +207,7 @@ def edit_task(task_id=None):
         form.assignee_id.data = task.assignee_id or current_user.id
 
     if form.validate_on_submit():
+        is_new = task.id is None
         task.title = form.title.data.strip()
         task.description = form.description.data or ''
         task.client_id = form.client_id.data or None
@@ -208,6 +217,9 @@ def edit_task(task_id=None):
         task.status = form.status.data
         db.session.add(task)
         db.session.commit()
+        log_action(TASK_CREATE if is_new else TASK_UPDATE,
+                   f'Задача «{task.title}» '
+                   f'{"создана" if is_new else "изменена"}')
         flash('Задача сохранена', 'success')
         return redirect(url_for('tasks.list_tasks'))
 
@@ -218,7 +230,7 @@ def _visible_client_ids():
     q = Client.query
     if not current_user.is_admin:
         q = q.filter_by(responsible_id=current_user.id)
-    return q.order_by(Client.name).all()
+    return q.options(load_only(Client.id, Client.name)).order_by(Client.name).all()
 
 
 @bp.route('/tasks/<int:task_id>/status', methods=['POST'])
@@ -232,6 +244,8 @@ def change_status(task_id):
     if new_status in ('new', 'in_progress', 'done'):
         task.status = new_status
         db.session.commit()
+        log_action(TASK_STATUS,
+                   f'Задача «{task.title}»: {task.status_label}')
         flash(f'Статус задачи изменён на «{task.status_label}»', 'success')
     return redirect(request.referrer or url_for('tasks.list_tasks'))
 
@@ -242,8 +256,10 @@ def delete_task(task_id):
     task = Task.query.get_or_404(task_id)
     if not current_user.is_admin and task.assignee_id != current_user.id:
         abort(403)
+    title = task.title
     db.session.delete(task)
     db.session.commit()
+    log_action(TASK_DELETE, f'Удалена задача «{title}»')
     flash('Задача удалена', 'success')
     return redirect(url_for('tasks.list_tasks'))
 
@@ -258,6 +274,7 @@ def delete_all_tasks():
     if count:
         Task.query.delete()
         db.session.commit()
+        log_action(TASKS_DELETE_ALL, f'Удалено задач: {count}')
         flash(f'Удалены все задачи ({count})', 'success')
     else:
         flash('Задач для удаления нет', 'info')

@@ -33,7 +33,7 @@
   {% include '_date_range.html' %}
   <div class="col-6 col-md-3 col-lg-2">
     <select class="form-select" name="client" aria-label="Клиент"
-            title="Клиент">
+            title="Клиент" data-searchable>
       <option value="">Все клиенты</option>
       {% for c in clients %}
         <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
@@ -42,7 +42,7 @@
   </div>
   <div class="col-6 col-md-3 col-lg-2">
     <select class="form-select" name="contractor" aria-label="Контрагент"
-            title="Контрагент">
+            title="Контрагент" data-searchable>
       <option value="">Все контрагенты</option>
       {% for c in contractors %}
         <option value="{{ c.id }}" {{ 'selected' if contractor_id == c.id }}>{{ c.display_name }}</option>

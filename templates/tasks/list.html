@@ -34,7 +34,7 @@
       </div>
     </div>
     <div class="col-6 col-md-2 col-lg-2">
-      <select class="form-select" name="client" aria-label="Клиент">
+      <select class="form-select" name="client" aria-label="Клиент" data-searchable>
         <option value="">Все клиенты</option>
         {% for c in clients %}
           <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
@@ -43,7 +43,7 @@
     </div>
     {% if current_user.is_admin %}
     <div class="col-6 col-md-2 col-lg-2">
-      <select class="form-select" name="assignee" aria-label="Исполнитель">
+      <select class="form-select" name="assignee" aria-label="Исполнитель" data-searchable>
         <option value="">Все исполнители</option>
         <option value="mine" {{ 'selected' if mine }}>Только мои</option>
         {% for u in users %}

@@ -4,6 +4,7 @@
     python app.py            — дев-режим (SQLite + планировщик)
 Переменные окружения:
     DELTA_SECRET_KEY         — секретный ключ сессий
+    DELTA_1C_ENCRYPTION_KEY  — ключ шифрования паролей подключения к 1С
     DELTA_DATABASE_URL       — строка подключения (PostgreSQL в продакшене)
     DELTA_SYNC_INTERVAL      — период синхронизации клиентов, сек (по умолчанию 3600)
     DELTA_DOCUMENTS_INTERVAL — период загрузки документов, сек (по умолчанию 3600)
@@ -13,17 +14,112 @@ import os
 from decimal import Decimal, InvalidOperation
 
 from flask import Flask, flash, redirect, render_template, request, url_for
-from flask_login import LoginManager, current_user, logout_user
+from flask_login import LoginManager, current_user
 from flask_wtf import CSRFProtect
+from sqlalchemy import inspect, text
+from sqlalchemy.orm import load_only
 
 from engine import models as _m  # noqa: F401  (регистрация моделей в db)
 from engine.config import config
 from engine.forms import PASSWORD_HINT
-from engine.models import (User, assign_missing_task_assignees,
+from engine.models import (Client, OneCSetting, User,
+                           assign_missing_task_assignees,
                            close_archived_client_contracts, db)
+from engine.secret_storage import (SecretDecryptionError, encrypt_secret,
+                                   is_encrypted, needs_rotation,
+                                   reencrypt_secret)
+from engine.user_sessions import enforce_session, terminate_current_session
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+
+
+def _ensure_schema_upgrades():
+    """Добавить новые колонки в существующую базу (проект работает без Alembic).
+
+    ``db.create_all()`` создаёт только отсутствующие таблицы, поэтому для
+    уже существующих ``user_sessions`` и ``user_actions`` колонки добавляем
+    явно. Для свежей базы запросы не выполняются — колонки уже есть.
+    """
+    upgrades = {
+        'user_sessions': [('is_active_flag', 'BOOLEAN NOT NULL DEFAULT TRUE')],
+        'user_actions': [('session_id', "VARCHAR(128) NOT NULL DEFAULT ''")],
+    }
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    for table, columns in upgrades.items():
+        if table not in tables:
+            continue
+        present = {column['name'] for column in inspector.get_columns(table)}
+        for name, definition in columns:
+            if name in present:
+                continue
+            with db.engine.begin() as connection:
+                connection.execute(text(
+                    f'ALTER TABLE {table} ADD COLUMN {name} {definition}'))
+
+    # db.create_all() создаёт индексы только вместе с новой таблицей.
+    # В уже существующей базе объявленные в моделях составные индексы
+    # остаются отсутствующими, поэтому создаём их идемпотентно по metadata.
+    for table in db.metadata.tables.values():
+        for index in table.indexes:
+            index.create(bind=db.engine, checkfirst=True)
+
+
+def _encrypt_legacy_onec_passwords():
+    """Зашифровать пароли 1С, сохранённые до внедрения шифрования."""
+    changed = False
+    setting = db.session.get(OneCSetting, 1)
+    if setting and setting.password and not is_encrypted(setting.password):
+        setting.password = encrypt_secret(setting.password)
+        changed = True
+    # При запуске достаточно id и пароля: полные объекты клиентов с заметками
+    # и реквизитами подключения здесь не нужны.
+    clients = (Client.query
+               .options(load_only(Client.id, Client.odata_password))
+               .filter(Client.odata_password != '').all())
+    for client in clients:
+        if not is_encrypted(client.odata_password):
+            client.odata_password = encrypt_secret(client.odata_password)
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+def _rotate_onec_secrets():
+    """Перешифровать пароли 1С текущим ключом после ротации.
+
+    Старый ключ задаётся через ``DELTA_1C_ENCRYPTION_KEY_OLD``; пока он
+    указан, ``decrypt_secret()`` умеет читать старые значения. Миграция
+    идемпотентна: если значение уже открывается текущим ключом, оно не
+    меняется. При отсутствии старого ключа ошибка логируется, но запуск
+    приложения не прерывается — администратор видит проблему в логе и
+    может задать правильный OLD-ключ без потери данных.
+    """
+    logger = logging.getLogger(__name__)
+    changed = 0
+    setting = db.session.get(OneCSetting, 1)
+    if setting and needs_rotation(setting.password):
+        try:
+            setting.password = reencrypt_secret(setting.password)
+            changed += 1
+        except SecretDecryptionError:
+            logger.exception('Не удалось ротировать пароль главной базы 1С')
+    clients = (Client.query
+               .options(load_only(Client.id, Client.odata_password))
+               .filter(Client.odata_password != '').all())
+    for client in clients:
+        if not needs_rotation(client.odata_password):
+            continue
+        try:
+            client.odata_password = reencrypt_secret(client.odata_password)
+            changed += 1
+        except SecretDecryptionError:
+            logger.exception(
+                'Не удалось ротировать пароль 1С клиента #%s', client.id)
+    if changed:
+        db.session.commit()
+        logger.info('Перешифровано паролей 1С после ротации ключа: %s', changed)
 
 
 def create_app(config_name=None):
@@ -33,7 +129,7 @@ def create_app(config_name=None):
 
     # --- Расширения ---
     db.init_app(app)
-    csrf = CSRFProtect(app)  # глобальная защита POST + csrf_token() в шаблонах
+    CSRFProtect(app)  # глобальная защита POST + csrf_token() в шаблонах
 
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'
@@ -72,6 +168,13 @@ def create_app(config_name=None):
     app.register_blueprint(users_bp)
     app.register_blueprint(testing_bp)
 
+    # Сессия считается активной, пока её запись есть в базе и не истекла.
+    # Удалённая из другой сессии запись разлогинивает пользователя на
+    # следующем же запросе, даже если cookie ещё подписана корректно.
+    @app.before_request
+    def enforce_active_session():
+        return enforce_session()
+
     # Отключённый пользователь теряет доступ к системе сразу,
     # даже если его сессия была активной
     @app.before_request
@@ -79,7 +182,7 @@ def create_app(config_name=None):
         if (current_user.is_authenticated
                 and not current_user.is_active_flag
                 and not request.path.startswith('/static/')):
-            logout_user()
+            terminate_current_session()
             flash('Ваша учётная запись отключена', 'warning')
             return redirect(url_for('auth.login'))
 
@@ -162,6 +265,9 @@ def create_app(config_name=None):
     # --- База данных ---
     with app.app_context():
         db.create_all()
+        _ensure_schema_upgrades()
+        _encrypt_legacy_onec_passwords()
+        _rotate_onec_secrets()
         # Приводим существующие данные к правилам системы:
         # — у архивных клиентов не может быть проектов и действующих
         #   договоров;

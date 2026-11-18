@@ -3,8 +3,9 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    url_for)
 from flask_login import current_user, login_required
 from sqlalchemy import case, func, or_
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import contains_eager, joinedload, load_only
 
+from engine.audit import DOCUMENT_UPDATE, log_action
 from engine.dates import apply_date_range
 from engine.forms import DocumentForm
 from engine.models import Client, Contractor, Document, db
@@ -69,8 +70,18 @@ def list_documents():
     # Контрагент нужен и для поиска, и для сортировки по столбцу
     q = (Document.query.join(Client)
          .outerjoin(Contractor, Document.contractor_id == Contractor.id)
-         .options(contains_eager(Document.client),
-                  contains_eager(Document.contractor)))
+         .options(
+             contains_eager(Document.client).load_only(
+                 Client.id, Client.name),
+             contains_eager(Document.contractor).load_only(
+                 Contractor.id, Contractor.full_name,
+                 Contractor.external_ref),
+             load_only(Document.id, Document.doc_type, Document.number,
+                       Document.doc_date, Document.status,
+                       Document.client_id, Document.contractor_id,
+                       Document.processed, Document.external_url,
+                       Document.created_at),
+         ))
     if not current_user.is_admin:
         q = q.filter(Client.responsible_id == current_user.id)
 
@@ -181,6 +192,8 @@ def edit_document(document_id):
         document.processed = form.processed.data
         document.notes = form.notes.data or ''
         db.session.commit()
+        log_action(DOCUMENT_UPDATE,
+                   f'Изменён документ «{document.number or document.doc_type}»')
         flash('Заметки документа сохранены', 'success')
         return redirect(url_for('documents.detail', document_id=document.id))
     return render_template('documents/form.html', document=document,

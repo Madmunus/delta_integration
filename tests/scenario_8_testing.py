@@ -4,6 +4,8 @@
 JSON-сводку, а результат каждого шага — отдельным запросом. Дополнительно
 проверяются обычный POST без JavaScript и запрет для сотрудника.
 """
+from pathlib import Path
+
 from tests.base import EMAILS, Steps, create_scenario_app, login, seed_users
 
 FT = 'Интерфейс'
@@ -115,7 +117,25 @@ def run():
                 'HTTP 403 и HTML-страница ошибки',
                 f'HTTP {resp.status_code}')
 
-    conclusion = ('AJAX-запуск сценариев и пошаговый вывод результатов '
-                  'работают.' if steps.passed
-                  else 'AJAX-выполнение сценариев нарушено — см. шаги.')
+    # --- Шаг 8. Поисковый select в стиле Select2 подключён локально -------
+    script_asset = 'js/searchable-select.js'
+    css_asset = 'css/style.css'
+    static_root = Path(__file__).resolve().parents[1] / 'static'
+    script_path = static_root / script_asset
+    css_path = static_root / css_asset
+    script_text = script_path.read_text(encoding='utf-8') if script_path.is_file() else ''
+    css_text = css_path.read_text(encoding='utf-8') if css_path.is_file() else ''
+    ok = ('/static/' + script_asset in html
+          and 'delta-select' in script_text
+          and 'data-searchable' in script_text
+          and 'MIN_OPTIONS' not in script_text
+          and 'delta-select-display' in css_text)
+    steps.check(ok, 'Поисковый select работает без внешних библиотек',
+                'страница загружает собственный JS и CSS; поиск включается '
+                'по data-searchable, а не по текущему числу option',
+                'скрипт и стили найдены' if ok else 'часть файлов отсутствует')
+
+    conclusion = ('AJAX-запуск сценариев, пошаговый вывод результатов '
+                  'и поисковый select в стиле Select2 работают.' if steps.passed
+                  else 'Интерфейс сценариев нарушен — см. шаги.')
     return steps, conclusion

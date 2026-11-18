@@ -4,3 +4,4 @@ Flask-Login>=0.6
 Flask-WTF>=1.2
 requests>=2.31
 APScheduler>=3.10
+cryptography>=42

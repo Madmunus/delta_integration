@@ -9,7 +9,6 @@ import logging
 from datetime import date, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import current_app
 
 from engine.models import Client, ReportingDeadline, Task, db
 from engine.sync import sync_clients, sync_documents
@@ -102,10 +101,17 @@ def generate_deadline_tasks(lead_days: int = 7) -> list:
     deadlines = ReportingDeadline.query.filter_by(is_enabled=True).all()
     clients = Client.query.filter_by(status='active').all()
     periods = current_periods(today)
+    deadline_ids = [deadline.id for deadline in deadlines]
+    window_end = today + timedelta(days=lead_days)
     # Одним запросом получаем все уже созданные комбинации: раньше каждая
-    # проверка дубликата делала отдельный SELECT (N+1).
+    # проверка дубликата делала отдельный SELECT (N+1). Задачи вне окна
+    # сдачи и без привязки к сроку отчётности в дедупликации не участвуют.
     existing = set(Task.query.with_entities(
-        Task.client_id, Task.reporting_deadline_id, Task.due_date).all())
+        Task.client_id, Task.reporting_deadline_id, Task.due_date)
+        .filter(Task.reporting_deadline_id.in_(deadline_ids),
+                Task.due_date.isnot(None),
+                Task.due_date >= today,
+                Task.due_date <= window_end).all())
 
     for deadline in deadlines:
         for period in periods:

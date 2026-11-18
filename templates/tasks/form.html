@@ -49,11 +49,11 @@
         </div>
         <div class="col-md-6">
           {{ form.client_id.label(class='form-label') }}
-          {{ form.client_id(class='form-select') }}
+          {{ form.client_id(class='form-select', data_searchable='') }}
         </div>
         <div class="col-md-6">
           {{ form.assignee_id.label(class='form-label') }}
-          {{ form.assignee_id(class='form-select') }}
+          {{ form.assignee_id(class='form-select', data_searchable='') }}
           {% for error in form.assignee_id.errors %}
             <div class="text-danger small">{{ error }}</div>
           {% endfor %}

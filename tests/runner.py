@@ -27,6 +27,7 @@ SCENARIOS = [
     ('scenario_6', 'tests.scenario_6_deadlines'),
     ('scenario_7', 'tests.scenario_7_reports'),
     ('scenario_8', 'tests.scenario_8_testing'),
+    ('scenario_9', 'tests.scenario_9_query_budget'),
 ]
 
 
